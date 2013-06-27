@@ -1,4 +1,3 @@
-
 require "serialize"
 local socket = require "socket"
 local function _newset()
@@ -41,12 +40,10 @@ function _connection.__index(self, key)
 	local buffer = {}
 	setmetatable(rpc, {
 		__index = function(rpc, key)
-			print('__index', key)
 			table.insert(buffer, key)
 			return rpc
 		end,
 		__call = function(rpc, ...)
-			print('__call', ...)
 			return self:send(serialize(buffer).."@"..serialize{...}.."@")
 		end
 	})
