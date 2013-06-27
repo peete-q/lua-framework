@@ -74,19 +74,19 @@ function clone(parent, map)
 	return new
 end
 
-function base(root)
-	assert(root, debug.traceback())
+function base(parent)
+	assert(parent, debug.traceback())
 	local tb = {
 		__base = {
-			__root = root,
+			__parent = parent,
 		},
-		__root = root,
+		__parent = parent,
 	}
 	
 	local function base_index(self)
 		local tb = self
 		return function(self, name)
-			local v = rawget(self, "__root")[name]
+			local v = rawget(self, "__parent")[name]
 			if type(v) == "function" then
 				return function(...)
 					local t = {...}
@@ -103,7 +103,7 @@ function base(root)
 			end
 			if type(v) == "table" then
 				local dummy = {
-					__root = v,
+					__parent = v,
 				}
 				rawset(self, name, dummy)
 				setmetatable(dummy, {__index = base_index})
@@ -115,9 +115,9 @@ function base(root)
 	setmetatable(tb.__base, {__index = base_index(tb)})
 	
 	local function index(self, name)
-		local v = rawget(self, "__root")[name]
+		local v = rawget(self, "__parent")[name]
 		if type(v) == "table" then
-			local dummy = {__root = v}
+			local dummy = {__parent = v}
 			rawset(self, name, dummy)
 			setmetatable(dummy, {__index = index})
 			return dummy
@@ -128,9 +128,9 @@ function base(root)
 	local function call(self)
 		local tb = {
 			__base = {
-				__root = self.__root,
+				__parent = self.__parent,
 			},
-			__root = self,
+			__parent = self,
 		}
 		setmetatable(tb.__base, {__index = base_index(tb)})
 		setmetatable(tb, {__index = index})
