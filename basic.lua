@@ -1,4 +1,3 @@
-
 local lfs = require "lfs"
 local _loaded = {}
 
@@ -53,18 +52,18 @@ function strict(object, name, access)
 	return object
 end
 
-function clone(source, buffer)
+function clone(source, map)
 	local new = {}
-	buffer = buffer or {}
-	buffer[source] = source
+	map = map or {}
+	map[source] = source
 	for k, v in pairs(source) do
 		if type(v) == "table" then
-			if buffer[v] then
-				new[k] = buffer[v]
+			if map[v] then
+				new[k] = map[v]
 			else
-				local tb = clone(v, buffer)
+				local tb = clone(v, map)
 				new[k] = tb
-				buffer[v] = tb
+				map[v] = tb
 			end
 		elseif type(v) == "userdata" and v.clone then
 			new[k] = v:clone()
