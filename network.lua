@@ -28,34 +28,56 @@ local _readings = _newset()
 local _writings = _newset()
 local _listenings = {}
 local _listener = {}
-local _connection = {}
 local _waitingAcks = {}
+local _connection = {
+	__type = "network.connection",
+}
+function _connection.__index(self, key)
+	local m = _connection[key]
+	if m then
+		return m
+	end
+	local rpc = {}
+	local buffer = {}
+	setmetatable(rpc, {
+		__index = function(rpc, key)
+			print('__index', key)
+			table.insert(buffer, key)
+			return rpc
+		end,
+		__call = function(rpc, ...)
+			print('__call', ...)
+			return self:send(serialize(buffer).."@"..serialize{...}.."@")
+		end
+	})
+	return rpc[key]
+end
 function _connection.addPrivilege(self, key, privilege)
-  self.privilege[key] = privilege
+	self._privilege[key] = privilege
 end
 function _connection.removePrivilege(self, key)
-	self.privilege[key] = nil
+	self._privilege[key] = nil
 end
 function _connection.clearPrivilege(self)
-	self.privilege = {}
+	self._privilege = {}
 end
 function _connection.setReceiver(self, cb)
 	self.incoming = cb
 end
 function _connection.send(self, data)
-	if not self.outgoing then
+	if not self._field.outgoing then
 		_writings:insert(self.socket)
-		self.outgoing = {
+		self._field.outgoing = {
 			data = data,
 		}
-		self.last = self.outgoing
+		self._field.last = self._field.outgoing
 	else
-		self.last.next = {
+		self._field.last.next = {
 			data = data,
 		}
-		self.last = self.last.next
+		self._field.last = self._field.last.next
 	end
-	return self.last
+	return self._field.last
 end
 function _connection.close(self)
 end
@@ -68,30 +90,12 @@ function _connection.setReceivable(self, on)
 end
 function _connection.new(s)
 	local self = {
-		__type = "network.communicator",
 		socket = s,
-		addPrivilege = _connection.addPrivilege,
-		removePrivilege = _connection.removePrivilege,
-		clearPrivilege = _connection.clearPrivilege,
-		setReceiver = _connection.setReceiver,
-		setReceivable = _connection.setReceivable,
-		send = _connection.send,
-		close = _connection.close,
-		rpc = {},
-		privilege = {},
+		_privilege = {},
+		_field = {},
+		_cache = {},
 	}
-	local field = {}
-	setmetatable(self.rpc, {
-		__index = function(rpc, name)
-			table.insert(field, name)
-			return rpc
-		end,
-		__call = function(rpc, ...)
-			local h = self:send(serialize(field).."@"..serialize{...}.."@")
-			field = {}
-			return h
-		end
-	})
+	setmetatable(self, _connection)
 	s:settimeout(0)
 	_connection[s] = self
 	return self
@@ -108,7 +112,7 @@ local function _do_rpc(c, data)
 	if filed then
 		filed = loadstring(filed)()
 		args = loadstring(args)()
-		local rpc = c.privilege
+		local rpc = c._privilege
 		for i, v in ipairs(filed) do
 			if type(rpc) ~= "table" then
 				break
@@ -119,7 +123,7 @@ local function _do_rpc(c, data)
 			end
 		end
 		if type(rpc) ~= "function" then
-			print("RPC error: no privilege ".._rpc_name(filed))
+			print("RPC error: no _privilege ".._rpc_name(filed))
 			return
 		end
 		
@@ -140,8 +144,7 @@ local function _do_ack(c, data)
 	end
 end
 
-network = {
-}
+network = {}
 function network.listen(ip, port, cb)
 	local s = assert(socket.bind(ip, port))
 	local listener = {
@@ -172,7 +175,7 @@ function network.step(timeout)
 			local s = v:receive()
 			local c = _connection[v]
 			if not _do_ack(c, s) then
-				if #c.privilege > 0 or not _do_rpc(c, s) then
+				if #c._privilege > 0 or not _do_rpc(c, s) then
 					c.incoming(s)
 				end
 			end
@@ -180,19 +183,19 @@ function network.step(timeout)
 	end
 	for k, v in ipairs(writable) do
 		local c = _connection[v]
-		while c.outgoing do
-			if c.outgoing.onAck then
-				table.insert(_waitingAcks, c.outgoing.onAck)
-				c.outgoing.data = c.outgoing.data..#_waitingAcks
+		while c._field.outgoing do
+			if c._field.outgoing.onAck then
+				table.insert(_waitingAcks, c._field.outgoing.onAck)
+				c._field.outgoing.data = c._field.outgoing.data..#_waitingAcks
 			end
-			local ok, e = v:send(c.outgoing.data.."\n")
+			local ok, e = v:send(c._field.outgoing.data.."\n")
 			if not ok then
 				print("send failed:"..e)
 				break
 			end
-			c.outgoing = c.outgoing.next
+			c._field.outgoing = c._field.outgoing.next
 		end
-		if not c.outgoing then
+		if not c._field.outgoing then
 			_writings:remove(v)
 		end
 	end
