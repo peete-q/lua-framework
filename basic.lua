@@ -52,11 +52,11 @@ function strict(object, name, access)
 	return object
 end
 
-function clone(source, map)
+function clone(parent, map)
 	local new = {}
 	map = map or {}
-	map[source] = source
-	for k, v in pairs(source) do
+	map[parent] = parent
+	for k, v in pairs(parent) do
 		if type(v) == "table" then
 			if map[v] then
 				new[k] = map[v]
