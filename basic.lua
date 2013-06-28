@@ -1,21 +1,22 @@
+
 local lfs = require "lfs"
-local _loaded = {}
+__entries = {}
 
 function stdpath(entry)
-  return string.gsub(entry, "\\", "/")
+	return string.gsub(entry, "\\", "/")
 end
 
 function import(entry)
 	entry = stdpath(entry)
 	local mode = lfs.attributes(entry, "mode")
 	if mode == "file" then
-		if not _loaded[entry] then
-			_loaded[entry] = "loading"
-			_loaded[entry] = {dofile(entry)}
-		elseif _loaded[entry] == "loading" then
+		if not __entries[entry] then
+			__entries[entry] = "loading"
+			__entries[entry] = {dofile(entry)}
+		elseif __entries[entry] == "loading" then
 			error("import: loop or previous error loading '"..entry.."'")
 		end
-		return unpack(_loaded[entry])
+		return unpack(__entries[entry])
 	elseif mode == "directory" then
 		local exports = {}
 		for e in lfs.dir(entry) do
@@ -33,9 +34,30 @@ function import(entry)
 	end
 end
 
-function strict(object, name, access)
-	name = name or tostring(object)
+none = false
+__type = type
+function type(o)
+	if __type(o) == "table" then
+		return o.__type or __type(o)
+	end
+	if __type(o) == "userdata" and getmetatable(o) then
+		return o.__type or __type(o)
+	end
+	return __type(o)
+end
+
+function field(o, name)
+	if __type(o) == "table" then
+		return o[name]
+	end
+	if __type(o) == "userdata" and getmetatable(o) then
+		return o[name]
+	end
+end
+
+function strict(object, access)
 	access = access or "rw"
+	local name = (object.__info or type(object))..":"..tostring(object)
 	assert(not getmetatable(object), "attemp to strict '"..name.."' with metatable")
 	local meta = {}
 	if string.find(access, "w") then
@@ -52,31 +74,58 @@ function strict(object, name, access)
 	return object
 end
 
-function clone(parent, map)
-	local new = {}
-	map = map or {}
-	map[parent] = parent
-	for k, v in pairs(parent) do
-		if type(v) == "table" then
-			if map[v] then
-				new[k] = map[v]
+function clone(source, depth, map)
+	assert(type(source) == "table", "cannot clone nontable")
+	assert(not source.__class, "cannot clone class")
+	assert(not source.__object, "cannot clone object")
+	if not depth or depth > 0 then
+		local new = {}
+		map = map or {}
+		map[source] = source
+		for k, v in pairs(source) do
+			if type(v) == "table" then
+				if map[v] then
+					new[k] = map[v]
+				else
+					local tb = clone(v, depth - 1, map)
+					new[k] = tb
+					map[v] = tb
+				end
 			else
-				local tb = clone(v, map)
-				new[k] = tb
-				map[v] = tb
+				new[k] = v
 			end
-		elseif type(v) == "userdata" and v.clone then
-			new[k] = v:clone()
-		else
-			new[k] = v
 		end
 	end
 	return new
 end
 
-function base(parent)
-	assert(parent, debug.traceback())
-	local tb = {
+function copy(dest, source, cover, map)
+	assert(dest)
+	
+	map = map or {}
+	map[source] = source
+	for k, v in pairs(source) do
+		if cover or not dest[k] then
+			if field(v, "__copy") then
+				dest[k] = v:__copy()
+			elseif type(v) == "table" and not v.__class and not v.__object then
+				if map[v] then
+					dest[k] = map[v]
+				else
+					local tb = clone(v, nil, map)
+					dest[k] = tb
+					map[v] = tb
+				end
+			else
+				dest[k] = v
+			end
+		end
+	end
+end
+
+local function _base(parent)
+	assert(parent.__class)
+	local new = {
 		__base = {
 			__parent = parent,
 		},
@@ -112,7 +161,7 @@ function base(parent)
 			return v
 		end
 	end
-	setmetatable(tb.__base, {__index = base_index(tb)})
+	setmetatable(new.__base, {__index = base_index(new)})
 	
 	local function index(self, name)
 		local v = rawget(self, "__parent")[name]
@@ -126,16 +175,80 @@ function base(parent)
 	end
 	
 	local function call(self)
-		local tb = {
+		local o = {
 			__base = {
 				__parent = self.__parent,
 			},
 			__parent = self,
 		}
-		setmetatable(tb.__base, {__index = base_index(tb)})
-		setmetatable(tb, {__index = index})
-		return tb
+		setmetatable(o.__base, {__index = base_index(o)})
+		setmetatable(o, {__index = index})
+		return o
 	end
-	setmetatable(tb, {__index = index, __call = call})
-	return tb
+	setmetatable(new, {__index = index, __call = call})
+	return new
+end
+
+local function _base_now_index(self, key)
+	local v = rawget(self, "__root")[key]
+	if type(v) == "function" then
+		return function(...)
+			local arg = {...}
+			if arg[1] == self then
+				v(self, unpack(arg, 2))
+			else
+				v(...)
+			end
+		end
+	end
+	return v
+end
+
+local function _base_now(new, parent)
+	assert(parent.__class)
+	
+	new.__base = {__root = parent, __base = parent.__base}
+	new.__parent = parent
+	copy(new, parent)
+	setmetatable(new.__base, {__index = _base_now_index})
+	return new
+end
+
+local function _base_now_call(self)
+	local o = {
+		__type = "object",
+		__info = "object:"..self.__class,
+		__base = {__root = self.__parent},
+		__object = self.__class,
+	}
+	copy(o, self)
+	setmetatable(o.__base, {__index = _base_now_index})
+	setmetatable(o, {__index = self.__index, __newindex = self.__newindex})
+	return o
+end
+
+__classes = {}
+function class(name)
+	assert(not __classes[name], "redeclare class:"..name)
+	
+	local new = {
+		__type = "class",
+		__info = "class:"..name,
+		__class = name,
+	}
+	__classes[name] = new
+	local parent
+	function inherit(name)
+		assert(__classes[name], "inherit undeclare class:"..name)
+		parent = __classes[name]
+	end
+	function define(content)
+		copy(new, content)
+		if parent then
+			_base_now(new, parent)
+		end
+		strict(new, "w")
+		getmetatable(new).__call = _base_now_call
+	end
+	return new
 end
