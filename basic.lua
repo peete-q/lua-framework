@@ -1,4 +1,3 @@
-
 local lfs = require "lfs"
 __entries = {}
 
@@ -58,19 +57,43 @@ end
 function strict(object, access)
 	access = access or "rw"
 	local name = (object.__info or type(object))..":"..tostring(object)
-	assert(not getmetatable(object), "attemp to strict '"..name.."' with metatable")
-	local meta = {}
+	local meta = getmetatable(object)
+	local newindex
+	local index
+	if meta then
+		newindex = meta.__newindex
+		index = meta.__index
+	else
+		meta = {}
+		setmetatable(object, meta)
+	end
+	
 	if string.find(access, "w") then
-		meta.__newindex = function(self, varname, value)
-			error("attempt to write undeclared memmber '"..varname.."' of '"..name.."'")
+		if newindex then
+			meta.__newindex = function(self, varname, value)
+				if type(newindex(self, varname, value)) == "nil" then
+					error("attempt to write undefined memmber '"..varname.."' of '"..name.."'")
+				end
+			end
+		else
+			meta.__newindex = function(self, varname, value)
+				error("attempt to write undefined memmber '"..varname.."' of '"..name.."'")
+			end
 		end
 	end
 	if string.find(access, "r") then
-		meta.__index = function(self, varname, value)
-			error("attempt to read undeclared memmber '"..varname.."' of '"..name.."'")
+		if index then
+			meta.__index = function(self, varname, value)
+				if type(index(self, varname, value)) == "nil" then
+					error("attempt to read undefined memmber '"..varname.."' of '"..name.."'")
+				end
+			end
+		else
+			meta.__index = function(self, varname, value)
+				error("attempt to read undefined memmber '"..varname.."' of '"..name.."'")
+			end
 		end
 	end
-	setmetatable(object, meta)
 	return object
 end
 
@@ -78,8 +101,13 @@ function clone(source, depth, map)
 	assert(type(source) == "table", "cannot clone nontable")
 	assert(not source.__class, "cannot clone class")
 	assert(not source.__object, "cannot clone object")
-	if not depth or depth > 0 then
-		local new = {}
+	
+	local new
+	if depth ~= 0 then
+		if depth then
+			depth = depth - 1
+		end
+		new = {}
 		map = map or {}
 		map[source] = source
 		for k, v in pairs(source) do
@@ -87,7 +115,7 @@ function clone(source, depth, map)
 				if map[v] then
 					new[k] = map[v]
 				else
-					local tb = clone(v, depth - 1, map)
+					local tb = clone(v, depth, map)
 					new[k] = tb
 					map[v] = tb
 				end
@@ -123,132 +151,67 @@ function copy(dest, source, cover, map)
 	end
 end
 
-local function _base(parent)
-	assert(parent.__class)
-	local new = {
-		__base = {
-			__parent = parent,
-		},
-		__parent = parent,
-	}
-	
-	local function base_index(self)
-		local tb = self
-		return function(self, name)
-			local v = rawget(self, "__parent")[name]
-			if type(v) == "function" then
-				return function(...)
-					local t = {...}
-					if t[1] == self then
-						local dummy = {
-							__base = self.__base
-						}
-						setmetatable(dummy, {__index = tb, __newindex = tb})
-						v(dummy, unpack(t, 2))
-					else
-						v(...)
-					end
-				end
-			end
-			if type(v) == "table" then
-				local dummy = {
-					__parent = v,
-				}
-				rawset(self, name, dummy)
-				setmetatable(dummy, {__index = base_index})
-				return dummy
-			end
-			return v
-		end
-	end
-	setmetatable(new.__base, {__index = base_index(new)})
-	
-	local function index(self, name)
-		local v = rawget(self, "__parent")[name]
-		if type(v) == "table" then
-			local dummy = {__parent = v}
-			rawset(self, name, dummy)
-			setmetatable(dummy, {__index = index})
-			return dummy
-		end
-		return v
-	end
-	
-	local function call(self)
-		local o = {
-			__base = {
-				__parent = self.__parent,
-			},
-			__parent = self,
-		}
-		setmetatable(o.__base, {__index = base_index(o)})
-		setmetatable(o, {__index = index})
-		return o
-	end
-	setmetatable(new, {__index = index, __call = call})
-	return new
-end
-
-local function _base_now_index(self, key)
-	local v = rawget(self, "__root")[key]
-	if type(v) == "function" then
-		return function(...)
-			local arg = {...}
-			if arg[1] == self then
-				v(self, unpack(arg, 2))
-			else
-				v(...)
-			end
-		end
-	end
-	return v
-end
-
-local function _base_now(new, parent)
-	assert(parent.__class)
-	
-	new.__base = {__root = parent, __base = parent.__base}
-	new.__parent = parent
-	copy(new, parent)
-	setmetatable(new.__base, {__index = _base_now_index})
-	return new
-end
-
-local function _base_now_call(self)
-	local o = {
-		__type = "object",
-		__info = "object:"..self.__class,
-		__base = {__root = self.__parent},
-		__object = self.__class,
-	}
-	copy(o, self)
-	setmetatable(o.__base, {__index = _base_now_index})
-	setmetatable(o, {__index = self.__index, __newindex = self.__newindex})
-	return o
-end
-
 __classes = {}
 function class(name)
-	assert(not __classes[name], "redeclare class:"..name)
+	assert(not __classes[name], "redefine class:"..name)
 	
 	local new = {
 		__type = "class",
 		__info = "class:"..name,
 		__class = name,
 	}
-	__classes[name] = new
+	
 	local parent
 	function inherit(name)
-		assert(__classes[name], "inherit undeclare class:"..name)
+		assert(__classes[name], "inherit undefined class:"..name)
 		parent = __classes[name]
 	end
+	
 	function define(content)
+		__classes[name] = new
 		copy(new, content)
+		
 		if parent then
-			_base_now(new, parent)
+			new.__parent = parent
+			copy(new, parent)
 		end
 		strict(new, "w")
-		getmetatable(new).__call = _base_now_call
+		
+		getmetatable(new).__call = function (self)
+			local o = {
+				__type = "object",
+				__info = "object:"..self.__class,
+				__object = self.__class,
+			}
+			copy(o, self)
+			local this = o
+			local base = {}
+			while parent do
+				base.__root = parent
+				this.__base = base
+				local dummy = {__base = {}}
+				setmetatable(dummy, {__index = o, __newindex = o})
+				setmetatable(base, {__index = function(self, key)
+					local v = rawget(self, "__root")[key]
+					if type(v) == "function" then
+						return function(...)
+							local arg = {...}
+							if arg[1] == self then
+								v(dummy, unpack(arg, 2))
+							else
+								v(...)
+							end
+						end
+					end
+					return v
+				end})
+				base = dummy.__base
+				this = this.__base
+				parent = parent.__parent
+			end
+			setmetatable(o, self)
+			return o
+		end
 	end
 	return new
 end
