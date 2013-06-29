@@ -1,10 +1,115 @@
 local lfs = require "lfs"
-__entries = {}
+
+function tracebackfull()
+	local ret = ""
+	local level = 2  
+	ret = ret .. "stack traceback:\n"
+	while true do  
+		--get stack info  
+		local info = debug.getinfo(level, "Sln")
+		if not info then
+			break
+		end
+		
+		if info.what == "C" then	-- C function  
+			ret = ret .. tostring(level) .. "\tC function\n"
+		else						-- Lua function  
+			ret = ret .. string.format("\t[%s]:%d in function '%s'\n", info.short_src, info.currentline, info.name or "?")
+		end
+		--get local vars  
+		local i = 1
+		while true do  
+			local name, value = debug.getlocal(level, i)
+			if not name then
+				break
+			end
+			ret = ret .. "\t\t" .. name .. " =\t" .. toprettystring(value, 1) .. "\n"
+			i = i + 1
+		end
+		level = level + 1
+	end
+	return ret
+end
+
+function toprettystring(v, pre, map)
+	map = map or {}
+	map[v] = v
+	
+	local ret = not pre and "(" .. tostring(v) .. ") =\t" or "\t"
+	local pre = pre or ""
+	if type(v) == "table" then
+		local s = ""
+		for k, v in pairs(v) do  
+			s = s .. "\n\t" .. pre .. tostring(k) .. " ="
+			if not map[v] then
+				s = s .. toprettystring(v, pre .. "\t", map)
+				map[v] = v
+			else
+				s = s .. "\t(ref " .. tostring(v) .. ")"
+			end
+		end
+		if s == "" then
+			ret = ret .. "{}"
+		else
+			ret = ret .. "{" .. s .. "\n" .. pre .. "}"
+		end
+	elseif type(v) == "string" then
+		ret = ret .. string.format("%q", v)
+	else
+		ret = ret .. tostring(v)
+	end
+	return ret
+end 
+
+none = false
+__type = type
+function type(o)
+	if __type(o) == "table" then
+		return o.__type or __type(o)
+	end
+	if __type(o) == "userdata" and getmetatable(o) then
+		return o.__type or __type(o)
+	end
+	return __type(o)
+end
+
+function field(o, name)
+	if __type(o) == "table" then
+		return o[name]
+	end
+	if __type(o) == "userdata" and getmetatable(o) then
+		return o[name]
+	end
+end
+
+__tostring = tostring
+function tostring(v)
+	if type(v) == "class" then
+		return __tostring(v) .. " " .. v.__info
+	end
+	if type(v) == "object" then
+		return __tostring(v) .. " " .. v.__info
+	end
+	return __tostring(v)
+end
+
+function warning(condition, message)
+	if not condition then
+		print(debug.traceback("[WARNING] "..(message or ""), 2))
+	end
+end
+
+function assert(condition, message)
+	if not condition then
+		error("[ERROR] "..(message or ""), 0)
+	end
+end
 
 function stdpath(entry)
 	return string.gsub(entry, "\\", "/")
 end
 
+__entries = {}
 function import(entry)
 	entry = stdpath(entry)
 	local mode = lfs.attributes(entry, "mode")
@@ -30,27 +135,6 @@ function import(entry)
 		return unpack(exports)
 	else
 		error("import: can not found '"..entry.."'")
-	end
-end
-
-none = false
-__type = type
-function type(o)
-	if __type(o) == "table" then
-		return o.__type or __type(o)
-	end
-	if __type(o) == "userdata" and getmetatable(o) then
-		return o.__type or __type(o)
-	end
-	return __type(o)
-end
-
-function field(o, name)
-	if __type(o) == "table" then
-		return o[name]
-	end
-	if __type(o) == "userdata" and getmetatable(o) then
-		return o[name]
 	end
 end
 
@@ -155,7 +239,7 @@ function class(name)
 	
 	local new = {
 		__type = "class",
-		__info = "class:"..name,
+		__info = "class "..name,
 		__class = name,
 	}
 	
@@ -177,7 +261,7 @@ function class(name)
 		new.__new = function (self)
 			local o = {
 				__type = "object",
-				__info = "object:"..new.__class,
+				__info = "object of class "..new.__class,
 				__object = new.__class,
 			}
 			copy(o, new)
