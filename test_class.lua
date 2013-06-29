@@ -1,4 +1,4 @@
-require 'basic.lua'
+dofile 'basic.lua'
 
 classA = class 'classA' define {
   a = 'classA.a',
