@@ -111,14 +111,14 @@ function clone(source, depth, map)
 		map = map or {}
 		map[source] = source
 		for k, v in pairs(source) do
-			if type(v) == "table" then
-				if map[v] then
-					new[k] = map[v]
-				else
-					local tb = clone(v, depth, map)
-					new[k] = tb
-					map[v] = tb
-				end
+			if map[v] then
+				new[k] = map[v]
+			elseif field(v, "__clone") then
+				new[k] = field(v, "__clone")(v)
+				map[v] = new[k]
+			elseif type(v) == "table" and not v.__class then
+				new[k] = clone(v, depth, map)
+				map[v] = new[k]
 			else
 				new[k] = v
 			end
@@ -134,16 +134,14 @@ function copy(dest, source, cover, map)
 	map[source] = source
 	for k, v in pairs(source) do
 		if cover or not dest[k] then
-			if field(v, "__copy") then
+			if map[v] then
+				dest[k] = map[v]
+			elseif field(v, "__copy") then
 				dest[k] = v:__copy()
+				map[v] = dest[k]
 			elseif type(v) == "table" and not v.__class and not v.__object then
-				if map[v] then
-					dest[k] = map[v]
-				else
-					local tb = clone(v, nil, map)
-					dest[k] = tb
-					map[v] = tb
-				end
+				dest[k] = clone(v, nil, map)
+				map[v] = dest[k]
 			else
 				dest[k] = v
 			end
@@ -175,15 +173,14 @@ function class(name)
 			new.__parent = parent
 			copy(new, parent)
 		end
-		strict(new, "w")
 		
-		getmetatable(new).__call = function (self)
+		new.__new = function (self)
 			local o = {
 				__type = "object",
-				__info = "object:"..self.__class,
-				__object = self.__class,
+				__info = "object:"..new.__class,
+				__object = new.__class,
 			}
-			copy(o, self)
+			copy(o, new)
 			local this = o
 			local base = {}
 			while parent do
@@ -209,9 +206,36 @@ function class(name)
 				this = this.__base
 				parent = parent.__parent
 			end
-			setmetatable(o, self)
+			setmetatable(o, new)
 			return o
 		end
+		
+		new.__clone = function (self)
+			local o = new:__new()
+			local _ = string.byte("_")
+			local map = {}
+			map[self] = self
+			for k, v in pairs(self) do
+				local i, j = string.byte(k, 1, 2)
+				if i ~= _ or j ~= _ then
+					if map[v] then
+						o[k] = map[v]
+					elseif field(v, "__clone") then
+						o[k] = field(v, "__clone")(v)
+						map[v] = o[k]
+					elseif type(v) == "table" and not v.__class then
+						o[k] = clone(v)
+						map[v] = o[k]
+					else
+						o[k] = v
+					end
+				end
+			end
+			return o
+		end
+		
+		strict(new, "w")
+		getmetatable(new).__call = new.__new
 	end
 	return new
 end
