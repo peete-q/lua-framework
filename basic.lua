@@ -138,6 +138,12 @@ function import(entry)
 	end
 end
 
+local _ = string.byte("_")
+function metakey(name)
+	local i, j = string.byte(name, 1, 2)
+	return i == _ and j == _
+end
+
 function strict(object, access)
 	access = access or "rw"
 	local name = (object.__info or type(object))..":"..tostring(object)
@@ -154,27 +160,40 @@ function strict(object, access)
 	
 	if string.find(access, "w") then
 		if newindex then
-			meta.__newindex = function(self, varname, value)
-				if type(newindex(self, varname, value)) == "nil" then
-					error("attempt to write undefined memmber '"..varname.."' of '"..name.."'")
+			meta.__newindex = function(self, key, value)
+				if metakey(key) then
+					return newindex(self, key, value)
+				end
+				if type(newindex(self, key, value)) == "nil" then
+					error("attempt to write undefined memmber '"..key.."' of '"..name.."'")
 				end
 			end
 		else
-			meta.__newindex = function(self, varname, value)
-				error("attempt to write undefined memmber '"..varname.."' of '"..name.."'")
+			meta.__newindex = function(self, key, value)
+				if metakey(key) then
+					rawset(self, key, value)
+					return value
+				end
+				error("attempt to write undefined memmber '"..key.."' of '"..name.."'")
 			end
 		end
 	end
 	if string.find(access, "r") then
 		if index then
-			meta.__index = function(self, varname, value)
-				if type(index(self, varname, value)) == "nil" then
-					error("attempt to read undefined memmber '"..varname.."' of '"..name.."'")
+			meta.__index = function(self, key, value)
+				if metakey(key) then
+					return value
+				end
+				if type(index(self, key, value)) == "nil" then
+					error("attempt to read undefined memmber '"..key.."' of '"..name.."'")
 				end
 			end
 		else
-			meta.__index = function(self, varname, value)
-				error("attempt to read undefined memmber '"..varname.."' of '"..name.."'")
+			meta.__index = function(self, key, value)
+				if metakey(key) then
+					return value
+				end
+				error("attempt to read undefined memmber '"..key.."' of '"..name.."'")
 			end
 		end
 	end
@@ -291,17 +310,16 @@ function class(name)
 				parent = parent.__parent
 			end
 			setmetatable(o, new)
+			strict(o, "rw")
 			return o
 		end
 		
 		new.__clone = function (self)
 			local o = new:__new()
-			local _ = string.byte("_")
 			local map = {}
 			map[self] = self
 			for k, v in pairs(self) do
-				local i, j = string.byte(k, 1, 2)
-				if i ~= _ or j ~= _ then
+				if not metakey(k) then
 					if map[v] then
 						o[k] = map[v]
 					elseif field(v, "__clone") then
@@ -318,7 +336,7 @@ function class(name)
 			return o
 		end
 		
-		strict(new, "w")
+		strict(new, "rw")
 		getmetatable(new).__call = new.__new
 	end
 	return new
