@@ -1,31 +1,36 @@
 dofile 'basic.lua'
 
-classA = class 'classA' define {
-  a = 'classA.a',
+local A = class 'A' define {
+	a = 'A.a',
 	b = {
-		c = 'classA.b.c'
+		c = 'A.b.c'
 	},
 	f = function(self, ...)
-		print('classA', ...)
+		print('A.f', self.a, self.b, A.b, self.b.c, ...)
 	end,
 }
-a = classA()
+local a = A()
 
-classB = class 'classB' inherit 'classA' define {
+local B = class 'B' inherit 'A' define {
+	a = 'B.a',
 	f = function(self, ...)
 		self.__base:f(...)
-		print('classB', ...)
+		print('B.f', self.a, self.b, B.b, self.b.c, ...)
 	end,
 }
-b = classB()
+local b = B()
+b.b.c = 'b.b.c'
 
-classC = class 'classC' inherit 'classB' define {
+local C = class 'C' inherit 'B' define {
+	b = {
+		c = 'C.b.c'
+	},
 	f = function(self, ...)
 		self.__base:f(...)
-		print('classC', ...)
+		print('C.f', self.a, self.b, C.b, self.b.c, ...)
 	end,
 }
-c = classC()
+local c = C()
 
 print '-----------'
 a:f('a')
