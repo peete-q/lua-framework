@@ -20,6 +20,7 @@ local B = class 'B' inherit 'A' define {
 }
 local b = B()
 b.b.c = 'b.b.c'
+local b2 = b:__clone()
 
 local C = class 'C' inherit 'B' define {
 	b = {
@@ -43,3 +44,10 @@ c:f('c')
 print '-----------'
 c.__base:f('c')
 c.__base.__base:f('c')
+print(c.a, c.__base.a, c.__base.__base.a)
+c.__base.a = 'change:c.__base.a'
+print(c.a, c.__base.a, c.__base.__base.a)
+print(c.b.c, c.__base.b.c, c.__base.__base.b.c)
+print '-----------'
+print(b.a, b.b, b.b.c)
+print(b2.a, b2.b, b2.b.c)
