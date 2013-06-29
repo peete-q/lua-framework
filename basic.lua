@@ -23,7 +23,7 @@ function tracebackfull()
 			if not name then
 				break
 			end
-			ret = ret .. "\t\t" .. name .. " =\t" .. toprettystring(value, 1) .. "\n"
+			ret = ret .. "\t\t" .. name .. " =" .. toprettystring(value, 1) .. "\n"
 			i = i + 1
 		end
 		level = level + 1
