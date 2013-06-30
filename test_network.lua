@@ -20,7 +20,11 @@ network.listen('127.0.0.1',10001, function(c)
 end)
 
 -- client
-network.connect('127.0.0.1',10001, function(c)
+network.connect('127.0.0.1',10001, function(c, e)
+	if not c then
+		print('connect failed', e)
+		return
+	end
 	c:setReceivable(true)
 	network.step(1)
 	local h = c.cmd.hi(1,2,3)
