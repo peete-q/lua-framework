@@ -63,7 +63,7 @@ function _connection.setReceiver(self, cb)
 end
 function _connection.send(self, data)
 	if not self._field.outgoing then
-		_writings:insert(self.socket)
+		_writings:insert(self._socket)
 		self._field.outgoing = {
 			data = data,
 		}
@@ -80,14 +80,14 @@ function _connection.close(self)
 end
 function _connection.setReceivable(self, on)
 	if on then
-		_readings:insert(self.socket)
+		_readings:insert(self._socket)
 	else
 		_readings:remove()
 	end
 end
 function _connection.new(s)
 	local self = {
-		socket = s,
+		_socket = s,
 		_privilege = {},
 		_field = {},
 		_cache = {},
@@ -97,6 +97,14 @@ function _connection.new(s)
 	_connection[s] = self
 	return self
 end
+-- socket interface
+function _connection.getpeername(self)
+	return self._socket:getpeername()
+end
+function _connection.getsockname(self)
+	return self._socket:getsockname()
+end
+
 local function _rpc_name(filed)
 	local name = filed[1]
 	for i = 2, #filed do
