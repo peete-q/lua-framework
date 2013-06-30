@@ -20,14 +20,15 @@ network.listen('127.0.0.1',10001, function(c)
 end)
 
 -- client
-local cl = network.connect('127.0.0.1',10001)
-cl:setReceivable(true)
-network.step(1)
-local h = cl.cmd.hi(1,2,3)
-h.onAck = function(...) print('ack', ...) end
-cl.cmd.hello(1,2,3)
-cl.cmd.sub.a('sub.a')
-cl:send'xxxxxxx'
-for i = 1, 10 do
+network.connect('127.0.0.1',10001, function(c)
+	c:setReceivable(true)
 	network.step(1)
-end
+	local h = c.cmd.hi(1,2,3)
+	h.onAck = function(...) print('ack', ...) end
+	c.cmd.hello(1,2,3)
+	c.cmd.sub.a('sub.a')
+	c:send'xxxxxxx'
+	for i = 1, 10 do
+		network.step(1)
+	end
+end)
