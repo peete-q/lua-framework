@@ -158,9 +158,12 @@ function network.listen(ip, port, cb)
 	return listener
 end
 function network.connect(ip, port, cb)
-	local s = assert(socket.connect(ip, port))
-	local c = _connection.new(s)
-	cb(c)
+	local s, e = socket.connect(ip, port)
+	if s then
+		cb(_connection.new(s))
+	else
+		cb(nil, e)
+	end
 end
 function network.step(timeout)
 	local readable, writable = socket.select(_readings, _writings, timeout)
