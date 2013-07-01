@@ -4,7 +4,6 @@ local gm = {}
 local s, c, k, h
 local eof = "<eof>\n"
 local env = {
-	G = _G,
 	echo = function(...)
 		local arg = {...}
 		local s = ""
@@ -30,8 +29,8 @@ function gm.listen(host, port)
 	print("[GM] server waiting on "..tostring(i)..":"..tostring(p))
 	s:settimeout(0)
 	setmetatable(env, {__index = _G, __newindex = function(self, key, value)
-		if G[key] then
-			G[key] = value
+		if _G[key] then
+			_G[key] = value
 		else
 			rawset(self, key, value)
 		end
