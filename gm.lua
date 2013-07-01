@@ -1,9 +1,11 @@
 
-local socket = require "socket"
+
+local gm = {}
 local s, c, k, h
 local eof = "<eof>\n"
-local tb = {
-  echo = function(...)
+local env = {
+	G = _G,
+	echo = function(...)
 		local arg = {...}
 		local s = ""
 		for i, v in ipairs(arg) do
@@ -18,8 +20,6 @@ local tb = {
 	end,
 }
 
-gm = {}
-
 function gm.listen(host, port)
 	s = socket.bind(host, port)
 	if not s then
@@ -29,7 +29,13 @@ function gm.listen(host, port)
 	local i, p = s:getsockname()
 	print("[GM] server waiting on "..tostring(i)..":"..tostring(p))
 	s:settimeout(0)
-	setmetatable(tb, {__index = _G})
+	setmetatable(env, {__index = _G, __newindex = function(self, key, value)
+		if G[key] then
+			G[key] = value
+		else
+			rawset(self, key, value)
+		end
+	end})
 end
 
 function gm.step()
@@ -54,7 +60,7 @@ function gm.step()
 				h = v
 				local ok, e = loadstring(cmd), "input error"
 				if ok then
-					setfenv(ok, tb)
+					setfenv(ok, env)
 					ok, e = xpcall(ok, debug.traceback)
 					if not ok then
 						print(e)
@@ -104,3 +110,5 @@ function gm.connect(host, port)
 		end
 	end
 end
+
+return gm
