@@ -168,6 +168,9 @@ function network.listen(ip, port, cb)
 end
 function network.connect(ip, port, cb)
 	local s, e = socket.connect(ip, port)
+	if not cb then
+		return s and _connection.new(s), e
+	end
 	if s then
 		cb(_connection.new(s))
 	else
