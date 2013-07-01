@@ -101,9 +101,6 @@ end
 function _connection.getpeername(self)
 	return self._socket:getpeername()
 end
-function _connection.getsockname(self)
-	return self._socket:getsockname()
-end
 
 local function _rpc_name(filed)
 	local name = filed[1]
@@ -140,10 +137,10 @@ local function _do_rpc(c, data)
 	end
 end
 local function _do_ack(c, data)
-	local _, _, ack, param = data:find("(.+)#(.+)")
+	local _, _, ack, args = data:find("(.+)#(.+)")
 	if ack then
 		ack = tonumber(ack)
-		_waitingAcks[ack](unpack(loadstring(param)()))
+		_waitingAcks[ack](unpack(loadstring(args)()))
 		_waitingAcks[ack] = nil
 		return true
 	end
@@ -151,6 +148,8 @@ end
 
 network = {
 	_connection = _connection,
+	_do_rpc = _do_rpc,
+	_do_ack = _do_ack,
 }
 function network.listen(ip, port, cb)
 	local s = assert(socket.bind(ip, port))
@@ -187,7 +186,9 @@ function network.step(timeout)
 			local c = _connection[v]
 			if not _do_ack(c, s) then
 				if not next(c._privilege) or not _do_rpc(c, s) then
-					c.incoming(s)
+					if c.incoming then
+						c.incoming(s)
+					end
 				end
 			end
 		end
