@@ -149,7 +149,9 @@ local function _do_ack(c, data)
 	end
 end
 
-network = {}
+network = {
+	_connection = _connection,
+}
 function network.listen(ip, port, cb)
 	local s = assert(socket.bind(ip, port))
 	local listener = {
@@ -184,7 +186,7 @@ function network.step(timeout)
 			local s = v:receive()
 			local c = _connection[v]
 			if not _do_ack(c, s) then
-				if #c._privilege > 0 or not _do_rpc(c, s) then
+				if not next(c._privilege) or not _do_rpc(c, s) then
 					c.incoming(s)
 				end
 			end
