@@ -2,7 +2,7 @@
 local network = dofile "network.lua"
 
 local proxy = {
-  step = network.step,
+	step = network.step,
 	connect = network.connect,
 }
 
@@ -40,8 +40,8 @@ function proxy.listen(ip, port, cb)
 		local tb = proxy.queryGateway(port)
 		if tb then
 			c.clients = {}
-			c:setReceiver(function(s)
-				local _, _, head, args = string.find(s, "^$(.)(.+)")
+			c:setReceiver(function(data)
+				local _, _, head, args = string.find(data, "^$(.)(.+)")
 				head = tonumber(head)
 				args = loadstring(args)()
 				if head == 0 then -- new
@@ -64,9 +64,9 @@ function proxy.listen(ip, port, cb)
 					c.clients[args[1]] = nil
 				elseif head == 2 then -- message
 					local client = c.clients[args[1]]
-					local s = args[2]
+					local data = args[2]
 					if client._receivable then
-						network.dispatch(client, s)
+						network.dispatch(client, data)
 					end
 				end
 			end)
@@ -77,23 +77,32 @@ function proxy.listen(ip, port, cb)
 	end)
 end
 
-local function _gateway_receive_from_client(self, c, s)
-	self:send("$2"..serialize{c._index, s})
+local function _gateway_receive_from_client(self, c, data)
+	self:send("$2"..serialize{c._index, data})
 end
 
-local function _gateway_receive_from_server(self, s)
-	local _, _, index, body = string.find(s, "(.+)$(.+)")
+local function _gateway_receive_from_server(self, data)
+	local _, _, index, body = string.find(data, "(.+)$(.+)")
 	index = tonumber(index)
 	local c = self.clients[index]
 	c:send(body)
 end
 
+local function _gateway_upward(self, data)
+	_gateway_receive_from_client(self._gateway, self, data)
+end
+
+local function _dummy()
+end
+
 local function _gateway_listen(self, ip, port, cb)
 	return network.listen(ip, port, function(c)
 		c._index = #self.clients + 1
+		c._gateway = self
+		c._noprivilege = _dummy
 		self.clients[c._index] = c
 		self:send("$0"..serialize{c._index, c:getpeername()})
-		c:setReceiver(function(s) _gateway_receive_from_client(self, c, s) end)
+		c:setReceiver(function(data) _gateway_receive_from_client(self, c, data) end)
 		if cb then
 			cb(c)
 		end
@@ -105,7 +114,7 @@ function proxy.launchGateway(ip, port, cb)
 	if c then
 		c.clients = {}
 		c.listen = _gateway_listen
-		c:setReceiver(function (s) _gateway_receive_from_server(c, s) end)
+		c:setReceiver(function (data) _gateway_receive_from_server(c, data) end)
 	end
 	if cb then
 		cb(c, e)
