@@ -26,7 +26,16 @@ end
 local _readings = _newset()
 local _writings = _newset()
 local _listenings = {}
+local _connectings = {}
 local _listener = {}
+function _listener.close(self)
+	if self._socket then
+		_readings:remove(self._socket)
+		_listenings[self._socket] = nil
+		self._socket:close()
+		self._socket = false
+	end
+end
 local _waitingAcks = {}
 local _connection = {
 	__type = "network.connection",
@@ -44,7 +53,7 @@ function _connection.__index(self, key)
 			return rpc
 		end,
 		__call = function(rpc, ...)
-			return self:send(serialize(buffer).."@"..serialize{...}.."@")
+			return self:send{buffer,{...}}
 		end
 	})
 	return rpc[key]
@@ -59,7 +68,7 @@ function _connection.clearPrivilege(self)
 	self._privilege = {}
 end
 function _connection.setReceiver(self, cb)
-	self.incoming = cb
+	self._receiver = cb
 end
 function _connection.send(self, data)
 	if not self._field.outgoing then
@@ -77,45 +86,56 @@ function _connection.send(self, data)
 	return self._field.last
 end
 function _connection.close(self)
+	if self._socket then
+		_readings:remove(self._socket)
+		_connectings[self._socket] = nil
+		self._socket:close()
+		self._socket = false
+	end
 end
 function _connection.setReceivable(self, on)
-	if on then
-		_readings:insert(self._socket)
-	else
-		_readings:remove()
-	end
+	self._receivable = on
 end
 function _connection.new(s)
 	local self = {
 		_socket = s,
 		_privilege = {},
 		_field = {},
-		_cache = {},
+		_receiver = false,
+		_receivable = true,
 	}
 	setmetatable(self, _connection)
-	s:settimeout(0)
-	_connection[s] = self
+	if s then
+		s:settimeout(0)
+		_readings:insert(s)
+		_connectings[s] = self
+	end
 	return self
 end
 -- socket interface
 function _connection.getpeername(self)
 	return self._socket:getpeername()
 end
+function _connection.getsockname(self)
+	return self._socket:getsockname()
+end
 
-local function _rpc_name(filed)
-	local name = filed[1]
-	for i = 2, #filed do
-		name = name.."."..filed[i]
+local function _rpc_name(field)
+	local name = field[1]
+	for i = 2, #field do
+		name = name.."."..field[i]
 	end
 	return name
 end
 local function _do_rpc(c, data)
-	local _, _, filed, args, ack = data:find("(.+)@(.+)@(.*)")
-	if filed then
-		filed = loadstring(filed)()
-		args = loadstring(args)()
+	local _, _, message = data:find("^@(.+)")
+	if message then
+		local body = loadstring(message)()
+		local field = body[1]
+		local args = body[2]
+		local ack = body[3]
 		local rpc = c._privilege
-		for i, v in ipairs(filed) do
+		for i, v in ipairs(field) do
 			if type(rpc) ~= "table" then
 				break
 			end
@@ -125,22 +145,22 @@ local function _do_rpc(c, data)
 			end
 		end
 		if type(rpc) ~= "function" then
-			print("RPC error: no _privilege ".._rpc_name(filed))
+			print("RPC error: no _privilege ".._rpc_name(field))
 			return
 		end
-		
 		local ret = {rpc(unpack(args))}
-		if ack ~= "" then
-			c:send(ack.."#"..serialize(ret))
+		if ack then
+			c:send("#"..serialize{ack, ret})
 		end
 		return true
 	end
 end
 local function _do_ack(c, data)
-	local _, _, ack, args = data:find("(.+)#(.+)")
-	if ack then
-		ack = tonumber(ack)
-		_waitingAcks[ack](unpack(loadstring(args)()))
+	local _, _, message = data:find("^#(.+)")
+	if message then
+		local body = loadstring(message)()
+		local ack = body[1]
+		_waitingAcks[ack](unpack(body[2]))
 		_waitingAcks[ack] = nil
 		return true
 	end
@@ -148,13 +168,11 @@ end
 
 network = {
 	_connection = _connection,
-	_do_rpc = _do_rpc,
-	_do_ack = _do_ack,
 }
 function network.listen(ip, port, cb)
 	local s = assert(socket.bind(ip, port))
-	local listener = {
-		socket = s,
+	local self = {
+		_socket = s,
 		close = _listener.close,
 	}
 	_readings:insert(s)
@@ -164,18 +182,15 @@ function network.listen(ip, port, cb)
 		incoming = cb,
 	}
 	s:settimeout(0)
-	return listener
+	return self
 end
 function network.connect(ip, port, cb)
 	local s, e = socket.connect(ip, port)
-	if not cb then
-		return s and _connection.new(s), e
+	local c = s and _connection.new(s)
+	if cb then
+		cb(c, e)
 	end
-	if s then
-		cb(_connection.new(s))
-	else
-		cb(nil, e)
-	end
+	return c, e
 end
 function network.step(timeout)
 	local readable, writable = socket.select(_readings, _writings, timeout)
@@ -183,25 +198,39 @@ function network.step(timeout)
 		local listener = _listenings[v]
 		if listener then
 			local s = v:accept()
+			if _DEBUG then
+				local li, lp = s:getsockname()
+				local ri, rp = s:getpeername()
+				print("[accept]", s, li..":"..lp, ri..":"..rp)
+			end
 			listener.incoming(_connection.new(s))
 		else
 			local s = v:receive()
-			local c = _connection[v]
-			if not _do_ack(c, s) then
-				if not next(c._privilege) or not _do_rpc(c, s) then
-					if c.incoming then
-						c.incoming(s)
-					end
-				end
+			if _DEBUG then
+				local li, lp = v:getsockname()
+				local ri, rp = v:getpeername()
+				print("[receive]", s, v, li..":"..lp, ri..":"..rp)
+			end
+			local c = _connectings[v]
+			if c._receivable then
+				network.dispatch(c, s)
 			end
 		end
 	end
 	for k, v in ipairs(writable) do
-		local c = _connection[v]
+		local c = _connectings[v]
 		while c._field.outgoing do
 			if c._field.outgoing.onAck then
 				table.insert(_waitingAcks, c._field.outgoing.onAck)
-				c._field.outgoing.data = c._field.outgoing.data..#_waitingAcks
+				table.insert(c._field.outgoing.data, #_waitingAcks)
+			end
+			if type(c._field.outgoing.data) == "table" then
+				c._field.outgoing.data = "@"..serialize(c._field.outgoing.data)
+			end
+			if _DEBUG then
+				local li, lp = v:getsockname()
+				local ri, rp = v:getpeername()
+				print("[send]", c._field.outgoing.data, v, li..":"..lp, ri..":"..rp)
 			end
 			local ok, e = v:send(c._field.outgoing.data.."\n")
 			if not ok then
@@ -215,4 +244,14 @@ function network.step(timeout)
 		end
 	end
 end
+function network.dispatch(connection, data)
+	if not _do_ack(connection, data) then
+		if not next(connection._privilege) or not _do_rpc(connection, data) then
+			if connection._receiver then
+				connection._receiver(data)
+			end
+		end
+	end
+end
 
+return network
