@@ -2,7 +2,7 @@ local network = dofile "proxy.lua"
 
 -- server
 local cmd = {
-  hello = function(...)
+	hello = function(...)
 		print("hello", ...)
 	end,
 	hi = function(...)
