@@ -105,6 +105,7 @@ function _connection.new(s)
 		_field = {},
 		_receiver = false,
 		_receivable = true,
+		_noprivilege = false,
 	}
 	setmetatable(self, _connection)
 	if s then
@@ -147,7 +148,11 @@ local function _do_rpc(c, data)
 			end
 		end
 		if type(rpc) ~= "function" then
-			print("RPC error: no _privilege ".._rpc_name(field))
+			if c._noprivilege then
+				c._noprivilege(c, data)
+			else
+				print("RPC error: no privilege ".._rpc_name(field))
+			end
 			return
 		end
 		local ret = {rpc(unpack(args))}
@@ -200,19 +205,9 @@ function network.step(timeout)
 		local listener = _listenings[v]
 		if listener then
 			local s = v:accept()
-			if _DEBUG then
-				local li, lp = s:getsockname()
-				local ri, rp = s:getpeername()
-				print("[accept]", s, li..":"..lp, ri..":"..rp)
-			end
 			listener.incoming(_connection.new(s))
 		else
 			local s = v:receive()
-			if _DEBUG then
-				local li, lp = v:getsockname()
-				local ri, rp = v:getpeername()
-				print("[receive]", s, v, li..":"..lp, ri..":"..rp)
-			end
 			local c = _connectings[v]
 			if c._receivable then
 				network.dispatch(c, s)
@@ -228,11 +223,6 @@ function network.step(timeout)
 			end
 			if type(c._field.outgoing.data) == "table" then
 				c._field.outgoing.data = "@"..serialize(c._field.outgoing.data)
-			end
-			if _DEBUG then
-				local li, lp = v:getsockname()
-				local ri, rp = v:getpeername()
-				print("[send]", c._field.outgoing.data, v, li..":"..lp, ri..":"..rp)
 			end
 			local ok, e = v:send(c._field.outgoing.data.."\n")
 			if not ok then
