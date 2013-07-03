@@ -28,10 +28,11 @@ local _writings = _newset()
 local _listenings = {}
 local _connectings = {}
 local _listener = {}
-function _listener.close(self)
+function _listener.close(self, mode)
 	if self._socket then
 		_readings:remove(self._socket)
 		_listenings[self._socket] = nil
+		self._socket:shutdown(mode or "both")
 		self._socket:close()
 		self._socket = false
 	end
@@ -85,10 +86,11 @@ function _connection.send(self, data)
 	end
 	return self._field.last
 end
-function _connection.close(self)
+function _connection.close(self, mode)
 	if self._socket then
 		_readings:remove(self._socket)
 		_connectings[self._socket] = nil
+		self._socket:shutdown(mode or "both")
 		self._socket:close()
 		self._socket = false
 	end
