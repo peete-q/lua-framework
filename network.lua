@@ -58,7 +58,7 @@ function _connection.__index(self, key)
 			return rpc
 		end,
 		__call = function(rpc, ...)
-			return self:send("@"..serialize{field, {...}}.."@")
+			return self:send("\30!"..serialize{field, {...}}.."\30!")
 		end
 	})
 	return rpc[key]
@@ -139,7 +139,7 @@ local function _rpc_name(field)
 	return name
 end
 local function _do_rpc(c, data)
-	local _, _, message, ack = data:find("^@(.+)@(.*)")
+	local _, _, message, ack = data:find("^\30!(.+)\30!(.*)")
 	if message then
 		local body = loadstring(message)()
 		local field = body[1]
@@ -166,7 +166,7 @@ local function _do_rpc(c, data)
 	end
 end
 local function _do_ack(c, data)
-	local _, _, message = data:find("^#(.+)")
+	local _, _, message = data:find("^\30&(.+)")
 	if message then
 		local body = loadstring(message)()
 		local ack = body[1]
@@ -258,7 +258,7 @@ function network.dispatch(connection, data)
 	end
 end
 function network.respond(connection, ack, ret)
-	connection:send("#"..serialize{ack, ret})
+	connection:send("\30&"..serialize{ack, ret})
 end
 
 return network
