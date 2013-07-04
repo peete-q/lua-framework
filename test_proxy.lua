@@ -7,7 +7,7 @@ local cmd = {
 	end,
 	hi = function(...)
 		print("hi", ...)
-		return "hi_ack"
+		return "hi.ack"
 	end,
 	sub = {a = print, b = print},
 }
@@ -23,7 +23,16 @@ network.addGateway(10003)
 
 -- gateway
 local gateway = network.launchGateway("127.0.0.1",10003)
-gateway:listen("127.0.0.1",10004, function(c) print("new client", c._socket) end)
+gateway:listen("127.0.0.1",10004, function(c) 
+	print("new client", c._socket)
+	local cmd = {
+		hello = function(...)
+			print("gateway hello",...)
+			c.upward.cmd.hello("say hello from gateway")
+		end,
+	}
+	c:addPrivilege("cmd", cmd)
+end)
 network.step(1)
 
 -- client
@@ -33,11 +42,11 @@ network.connect("127.0.0.1",10004, function(c, e)
 		return
 	end
 	network.step(1)
-	local h = c.cmd.hi(1,2,3)
+	local h = c.cmd.hi("say hi")
 	h.onAck = function(...) print("ack", ...) end
-	c.cmd.hello(1,2,3)
+	c.cmd.hello("say hi")
 	c.cmd.sub.a("sub.a")
-	c:send"xxxxxxx"
+	c:send("xxxxxxx")
 	for i = 1, 10 do
 		network.step(1)
 	end
