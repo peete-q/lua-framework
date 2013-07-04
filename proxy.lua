@@ -77,19 +77,15 @@ function proxy.listen(ip, port, cb)
 	end)
 end
 
-local function _gateway_receive_from_client(self, c, data)
-	self:send("$2"..serialize{c._index, data})
+local function _gateway_upward(client, data)
+	client._gateway:send("$2"..serialize{client._index, data})
 end
 
-local function _gateway_receive_from_server(self, data)
+local function _gateway_downward(self, data)
 	local _, _, index, body = string.find(data, "(.+)$(.+)")
 	index = tonumber(index)
 	local c = self.clients[index]
 	c:send(body)
-end
-
-local function _gateway_upward(self, data)
-	_gateway_receive_from_client(self._gateway, self, data)
 end
 
 local function _dummy()
@@ -100,9 +96,23 @@ local function _gateway_listen(self, ip, port, cb)
 		c._index = #self.clients + 1
 		c._gateway = self
 		c._noprivilege = _dummy
+		c._field.upward = function ()
+			local rpc = {}
+			local buffer = {}
+			setmetatable(rpc, {
+				__index = function(rpc, key)
+					table.insert(buffer, key)
+					return rpc
+				end,
+				__call = function(rpc, ...)
+					return _gateway_upward(c, "@"..serialize{buffer,{...}})
+				end
+			})
+			return rpc
+		end
 		self.clients[c._index] = c
 		self:send("$0"..serialize{c._index, c:getpeername()})
-		c:setReceiver(function(data) _gateway_receive_from_client(self, c, data) end)
+		c:setReceiver(function(data) _gateway_upward(c, data) end)
 		if cb then
 			cb(c)
 		end
@@ -114,7 +124,7 @@ function proxy.launchGateway(ip, port, cb)
 	if c then
 		c.clients = {}
 		c.listen = _gateway_listen
-		c:setReceiver(function (data) _gateway_receive_from_server(c, data) end)
+		c:setReceiver(function (data) _gateway_downward(c, data) end)
 	end
 	if cb then
 		cb(c, e)
