@@ -46,6 +46,10 @@ function _connection.__index(self, key)
 	if m then
 		return m
 	end
+	local f = self._field[key]
+	if f then
+		return f()
+	end
 	local rpc = {}
 	local buffer = {}
 	setmetatable(rpc, {
@@ -72,19 +76,19 @@ function _connection.setReceiver(self, cb)
 	self._receiver = cb
 end
 function _connection.send(self, data)
-	if not self._field.outgoing then
+	if not self._cache.outgoing then
 		_writings:insert(self._socket)
-		self._field.outgoing = {
+		self._cache.outgoing = {
 			data = data,
 		}
-		self._field.last = self._field.outgoing
+		self._cache.last = self._cache.outgoing
 	else
-		self._field.last.next = {
+		self._cache.last.next = {
 			data = data,
 		}
-		self._field.last = self._field.last.next
+		self._cache.last = self._cache.last.next
 	end
-	return self._field.last
+	return self._cache.last
 end
 function _connection.close(self, mode)
 	if self._socket then
@@ -102,6 +106,7 @@ function _connection.new(s)
 	local self = {
 		_socket = s,
 		_privilege = {},
+		_cache = {},
 		_field = {},
 		_receiver = false,
 		_receivable = true,
@@ -216,22 +221,22 @@ function network.step(timeout)
 	end
 	for k, v in ipairs(writable) do
 		local c = _connectings[v]
-		while c._field.outgoing do
-			if c._field.outgoing.onAck then
-				table.insert(_waitingAcks, c._field.outgoing.onAck)
-				table.insert(c._field.outgoing.data, #_waitingAcks)
+		while c._cache.outgoing do
+			if c._cache.outgoing.onAck then
+				table.insert(_waitingAcks, c._cache.outgoing.onAck)
+				table.insert(c._cache.outgoing.data, #_waitingAcks)
 			end
-			if type(c._field.outgoing.data) == "table" then
-				c._field.outgoing.data = "@"..serialize(c._field.outgoing.data)
+			if type(c._cache.outgoing.data) == "table" then
+				c._cache.outgoing.data = "@"..serialize(c._cache.outgoing.data)
 			end
-			local ok, e = v:send(c._field.outgoing.data.."\n")
+			local ok, e = v:send(c._cache.outgoing.data.."\n")
 			if not ok then
 				print("send failed:"..e)
 				break
 			end
-			c._field.outgoing = c._field.outgoing.next
+			c._cache.outgoing = c._cache.outgoing.next
 		end
-		if not c._field.outgoing then
+		if not c._cache.outgoing then
 			_writings:remove(v)
 		end
 	end
