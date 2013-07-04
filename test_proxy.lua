@@ -28,7 +28,13 @@ gateway:listen("127.0.0.1",10004, function(c)
 	local cmd = {
 		hello = function(...)
 			print("gateway hello",...)
-			c.upward.cmd.hello("say hello from gateway")
+			return network.upward, "gateway upward", ...
+		end,
+		hi = function(...)
+			print("gateway hi",...)
+			local h = c.upward.cmd.hi("gateway say hi")
+			h.onAck = function(...) print("gateway ack", ...) end
+			return "gateway.hi.ack"
 		end,
 	}
 	c:addPrivilege("cmd", cmd)
@@ -44,7 +50,7 @@ network.connect("127.0.0.1",10004, function(c, e)
 	network.step(1)
 	local h = c.cmd.hi("say hi")
 	h.onAck = function(...) print("ack", ...) end
-	c.cmd.hello("say hi")
+	c.cmd.hello("say hello")
 	c.cmd.sub.a("sub.a")
 	c:send("xxxxxxx")
 	for i = 1, 10 do
