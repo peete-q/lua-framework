@@ -51,14 +51,14 @@ function _connection.__index(self, key)
 		return f()
 	end
 	local rpc = {}
-	local buffer = {}
+	local field = {}
 	setmetatable(rpc, {
 		__index = function(rpc, key)
-			table.insert(buffer, key)
+			table.insert(field, key)
 			return rpc
 		end,
 		__call = function(rpc, ...)
-			return self:send{buffer,{...}}
+			return self:send("@"..serialize{field, {...}}.."@")
 		end
 	})
 	return rpc[key]
@@ -102,6 +102,9 @@ end
 function _connection.setReceivable(self, on)
 	self._receivable = on
 end
+function _connection._noprivilege(self, data)
+	print("RPC error, noprivilege", data)
+end
 function _connection.new(s)
 	local self = {
 		_socket = s,
@@ -110,7 +113,8 @@ function _connection.new(s)
 		_field = {},
 		_receiver = false,
 		_receivable = true,
-		_noprivilege = false,
+		_dispatch = network.dispatch,
+		_respond = network.respond,
 	}
 	setmetatable(self, _connection)
 	if s then
@@ -127,7 +131,6 @@ end
 function _connection.getsockname(self)
 	return self._socket:getsockname()
 end
-
 local function _rpc_name(field)
 	local name = field[1]
 	for i = 2, #field do
@@ -136,12 +139,12 @@ local function _rpc_name(field)
 	return name
 end
 local function _do_rpc(c, data)
-	local _, _, message = data:find("^@(.+)")
+	local _, _, message, ack = data:find("^@(.+)@(.*)")
 	if message then
 		local body = loadstring(message)()
 		local field = body[1]
 		local args = body[2]
-		local ack = body[3]
+		local ack = tonumber(ack)
 		local rpc = c._privilege
 		for i, v in ipairs(field) do
 			if type(rpc) ~= "table" then
@@ -153,18 +156,13 @@ local function _do_rpc(c, data)
 			end
 		end
 		if type(rpc) ~= "function" then
-			if c._noprivilege then
-				c._noprivilege(c, data)
-			else
-				print("RPC error: no privilege ".._rpc_name(field))
-			end
-			return
+			return "noprivilege"
 		end
-		local ret = {rpc(unpack(args))}
-		if ack then
-			c:send("#"..serialize{ack, ret})
+		local ret = {pcall(rpc, unpack(args))}
+		if not ret[1] then
+			return "error", ack, ret[2], field, args
 		end
-		return true
+		return "ok", ack, {unpack(ret, 2)}, field, args
 	end
 end
 local function _do_ack(c, data)
@@ -180,6 +178,9 @@ end
 
 network = {
 	_connection = _connection,
+	_do_rpc = _do_rpc,
+	_do_ack = _do_ack,
+	_rpc_name = _rpc_name,
 }
 function network.listen(ip, port, cb)
 	local s = assert(socket.bind(ip, port))
@@ -215,7 +216,7 @@ function network.step(timeout)
 			local s = v:receive()
 			local c = _connectings[v]
 			if c._receivable then
-				network.dispatch(c, s)
+				c._dispatch(c, s)
 			end
 		end
 	end
@@ -224,10 +225,7 @@ function network.step(timeout)
 		while c._cache.outgoing do
 			if c._cache.outgoing.onAck then
 				table.insert(_waitingAcks, c._cache.outgoing.onAck)
-				table.insert(c._cache.outgoing.data, #_waitingAcks)
-			end
-			if type(c._cache.outgoing.data) == "table" then
-				c._cache.outgoing.data = "@"..serialize(c._cache.outgoing.data)
+				c._cache.outgoing.data = c._cache.outgoing.data..#_waitingAcks
 			end
 			local ok, e = v:send(c._cache.outgoing.data.."\n")
 			if not ok then
@@ -243,12 +241,24 @@ function network.step(timeout)
 end
 function network.dispatch(connection, data)
 	if not _do_ack(connection, data) then
-		if not next(connection._privilege) or not _do_rpc(connection, data) then
-			if connection._receiver then
-				connection._receiver(data)
+		local ok, ack, ret, field, args = _do_rpc(connection, data)
+		if ok == "noprivilege" then
+			if connection._noprivilege then
+				connection._noprivilege(connection, data)
 			end
+		elseif ok == "ok" then
+			if ack and connection._respond then
+				connection._respond(connection, ack, ret)
+			end
+		elseif ok == "error" then
+			print("RPC error when call:".._rpc_name(field), ret)
+		elseif connection._receiver then
+			connection._receiver(data)
 		end
 	end
+end
+function network.respond(connection, ack, ret)
+	connection:send("#"..serialize{ack, ret})
 end
 
 return network
