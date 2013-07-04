@@ -27,7 +27,7 @@ function proxy.queryGateway(port)
 end
 
 local function _proxy_send(self, data)
-	self._gateway:send("&"..self._index.."&"..data)
+	self._gateway:send("\30@"..self._index.."\30@"..data)
 end
 
 local function _proxy_getpeername(self)
@@ -45,7 +45,7 @@ function proxy.listen(ip, port, cb)
 		if tb then
 			c.clients = {}
 			c:setReceiver(function(data)
-				local _, _, head, index, args = string.find(data, "^&(.)&(.+)&(.*)")
+				local _, _, head, index, args = string.find(data, "^\30@(.)\30@(.+)\30@(.*)")
 				index = tonumber(index)
 				if head == "+" then -- new
 					local client = network._connection.new(false)
@@ -81,12 +81,12 @@ function proxy.listen(ip, port, cb)
 end
 
 local function _gateway_upward(client, data)
-	return client._gateway:send("&=&"..client._index.."&"..data)
+	return client._gateway:send("\30@=\30@"..client._index.."\30@"..data)
 end
 proxy.upward = _gateway_upward
 
 local function _gateway_downward(self, data)
-	local _, _, index, body = string.find(data, "^&(.+)&(.+)")
+	local _, _, index, body = string.find(data, "^\30@(.+)\30@(.+)")
 	index = tonumber(index)
 	local c = self.clients[index]
 	c:send(body)
@@ -101,7 +101,7 @@ local function _gateway_dispatch(connection, data)
 			end
 		elseif ok == "ok" then
 			if type(ret[1]) == "function" then
-				ret[1](connection, "@"..serialize{field,{unpack(ret, 2)}}.."@")
+				ret[1](connection, "\30!"..serialize{field,{unpack(ret, 2)}}.."\30!")
 			elseif ack and connection._respond then
 				connection._respond(connection, ack, ret)
 			end
@@ -128,13 +128,13 @@ local function _gateway_listen(self, ip, port, cb)
 					return rpc
 				end,
 				__call = function(rpc, ...)
-					return _gateway_upward(c, "@"..serialize{field,{...}}.."@")
+					return _gateway_upward(c, "\30!"..serialize{field,{...}}.."\30!")
 				end
 			})
 			return rpc
 		end
 		self.clients[c._index] = c
-		self:send("&+&"..c._index.."&"..serialize{c:getpeername()})
+		self:send("\30@+\30@"..c._index.."\30@"..serialize{c:getpeername()})
 		c:setReceiver(function(data) _gateway_upward(c, data) end)
 		if cb then
 			cb(c)
