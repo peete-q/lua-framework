@@ -7,7 +7,7 @@ local cmd = {
 	end,
 	hi = function(...)
 		print("hi", ...)
-		return "hi_ack"
+		return "hi.ack"
 	end,
 	sub = {a = print, b = print},
 }
@@ -24,11 +24,11 @@ network.connect("127.0.0.1",10001, function(c, e)
 		return
 	end
 	network.step(1)
-	local h = c.cmd.hi(1,2,3)
+	local h = c.cmd.hi("say hi")
 	h.onAck = function(...) print("ack", ...) end
-	c.cmd.hello(1,2,3)
+	c.cmd.hello("say hi")
 	c.cmd.sub.a("sub.a")
-	c:send"xxxxxxx"
+	c:send("xxxxxxx")
 	for i = 1, 10 do
 		network.step(1)
 	end
