@@ -26,8 +26,8 @@ function proxy.queryGateway(port)
 	return _gateways[port]
 end
 
-local function _proxy_send(self, data)
-	self._gateway:send("\30@"..self._index.."\30@"..data)
+local function _proxy_send(self, head, body)
+	self._gateway:_send(">", {self._index, {head, body}})
 end
 
 local function _proxy_getpeername(self)
@@ -45,16 +45,16 @@ function proxy.listen(ip, port, cb)
 		if tb then
 			c.clients = {}
 			c:setReceiver(function(data)
-				local _, _, head, index, args = string.find(data, "^\30@(.)\30@(.+)\30@(.*)")
-				index = tonumber(index)
+				local head = data[1]
+				local body = data[2]
+				local index = body[1]
 				if head == "+" then -- new
 					local client = network._connection.new(false)
-					args = loadstring(args)()
 					client._gateway = c
 					client._index = index
-					client._ip = args[1]
-					client._port = args[2]
-					client.send = _proxy_send
+					client._ip = body[2]
+					client._port = body[3]
+					client._send = _proxy_send
 					client.getpeername = _proxy_getpeername
 					client.getsockname = _proxy_getsockname
 					c.clients[index] = client
@@ -66,10 +66,11 @@ function proxy.listen(ip, port, cb)
 						c:onClosed()
 					end
 					c.clients[index] = nil
-				elseif head == "=" then -- message
+				elseif head == "<" then -- message
 					local client = c.clients[index]
 					if client._receivable then
-						client._dispatch(client, args)
+						table.insert(body[2], data[3])
+						client._dispatch(client, body[2])
 					end
 				end
 			end)
@@ -81,15 +82,17 @@ function proxy.listen(ip, port, cb)
 end
 
 local function _gateway_upward(client, data)
-	return client._gateway:send("\30@=\30@"..client._index.."\30@"..data)
+	return client._gateway:_send("<", {client._index, data})
 end
 proxy.upward = _gateway_upward
 
 local function _gateway_downward(self, data)
-	local _, _, index, body = string.find(data, "^\30@(.+)\30@(.+)")
-	index = tonumber(index)
-	local c = self.clients[index]
-	c:send(body)
+	if data[1] == ">" then
+		local body = data[2]
+		local index = body[1]
+		local c = self.clients[index]
+		c:_send(body[2][1], body[2][2])
+	end
 end
 
 local function _gateway_dispatch(connection, data)
@@ -101,7 +104,7 @@ local function _gateway_dispatch(connection, data)
 			end
 		elseif ok == "ok" then
 			if type(ret[1]) == "function" then
-				ret[1](connection, "\30!"..serialize{field,{unpack(ret, 2)}}.."\30!")
+				ret[1](connection, {"@", {field,{unpack(ret, 2)}}})
 			elseif ack and connection._respond then
 				connection._respond(connection, ack, ret)
 			end
@@ -128,13 +131,13 @@ local function _gateway_listen(self, ip, port, cb)
 					return rpc
 				end,
 				__call = function(rpc, ...)
-					return _gateway_upward(c, "\30!"..serialize{field,{...}}.."\30!")
+					return _gateway_upward(c, {"@", {field,{...}}})
 				end
 			})
 			return rpc
 		end
 		self.clients[c._index] = c
-		self:send("\30@+\30@"..c._index.."\30@"..serialize{c:getpeername()})
+		self:_send("+", {c._index, c:getpeername()})
 		c:setReceiver(function(data) _gateway_upward(c, data) end)
 		if cb then
 			cb(c)
