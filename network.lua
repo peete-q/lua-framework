@@ -5,6 +5,7 @@ local function _newset()
     local set = {}
     return setmetatable(set, {__index = {
         insert = function(set, value)
+			assert(value)
             if not reverse[value] then
                 table.insert(set, value)
                 reverse[value] = table.getn(set)
@@ -26,7 +27,7 @@ end
 local _readings = _newset()
 local _writings = _newset()
 local _listenings = {}
-local _connectings = {}
+local _connecteds = {}
 local _listener = {}
 function _listener.close(self, mode)
 	if self._socket then
@@ -58,7 +59,7 @@ function _connection.__index(self, key)
 			return rpc
 		end,
 		__call = function(rpc, ...)
-			return self:send("\30!"..serialize{field, {...}}.."\30!")
+			return self:_send("@", {field, {...}})
 		end
 	})
 	return rpc[key]
@@ -76,15 +77,24 @@ function _connection.setReceiver(self, cb)
 	self._receiver = cb
 end
 function _connection.send(self, data)
+	return self:_send("!", data)
+end
+function _connection._send(self, head, body)
 	if not self._cache.outgoing then
 		_writings:insert(self._socket)
 		self._cache.outgoing = {
-			data = data,
+			data = {
+				head,
+				body,
+			}
 		}
 		self._cache.last = self._cache.outgoing
 	else
 		self._cache.last.next = {
-			data = data,
+			data = {
+				head,
+				body,
+			}
 		}
 		self._cache.last = self._cache.last.next
 	end
@@ -93,7 +103,7 @@ end
 function _connection.close(self, mode)
 	if self._socket then
 		_readings:remove(self._socket)
-		_connectings[self._socket] = nil
+		_connecteds[self._socket] = nil
 		self._socket:shutdown(mode or "both")
 		self._socket:close()
 		self._socket = false
@@ -120,7 +130,7 @@ function _connection.new(s)
 	if s then
 		s:settimeout(0)
 		_readings:insert(s)
-		_connectings[s] = self
+		_connecteds[s] = self
 	end
 	return self
 end
@@ -139,12 +149,11 @@ local function _rpc_name(field)
 	return name
 end
 local function _do_rpc(c, data)
-	local _, _, message, ack = data:find("^\30!(.+)\30!(.*)")
-	if message then
-		local body = loadstring(message)()
+	if data[1] == "@" then
+		local body = data[2]
 		local field = body[1]
 		local args = body[2]
-		local ack = tonumber(ack)
+		local ack = data[3]
 		local rpc = c._privilege
 		for i, v in ipairs(field) do
 			if type(rpc) ~= "table" then
@@ -166,9 +175,8 @@ local function _do_rpc(c, data)
 	end
 end
 local function _do_ack(c, data)
-	local _, _, message = data:find("^\30&(.+)")
-	if message then
-		local body = loadstring(message)()
+	if data[1] == "#" then
+		local body = data[2]
 		local ack = body[1]
 		_waitingAcks[ack](unpack(body[2]))
 		_waitingAcks[ack] = nil
@@ -210,24 +218,32 @@ function network.step(timeout)
 	for k, v in ipairs(readable) do
 		local listener = _listenings[v]
 		if listener then
-			local s = v:accept()
+			local s, e = v:accept()
+			if not s then
+				print("accept failed:"..e)
+				break
+			end
 			listener.incoming(_connection.new(s))
 		else
-			local s = v:receive()
-			local c = _connectings[v]
+			local s, e = v:receive()
+			if not s then
+				print("receive failed:"..e)
+				break
+			end
+			local c = _connecteds[v]
 			if c._receivable then
-				c._dispatch(c, s)
+				c._dispatch(c, loadstring(s)())
 			end
 		end
 	end
 	for k, v in ipairs(writable) do
-		local c = _connectings[v]
+		local c = _connecteds[v]
 		while c._cache.outgoing do
 			if c._cache.outgoing.onAck then
 				table.insert(_waitingAcks, c._cache.outgoing.onAck)
-				c._cache.outgoing.data = c._cache.outgoing.data..#_waitingAcks
+				table.insert(c._cache.outgoing.data, #_waitingAcks)
 			end
-			local ok, e = v:send(c._cache.outgoing.data.."\n")
+			local ok, e = v:send(serialize(c._cache.outgoing.data).."\n")
 			if not ok then
 				print("send failed:"..e)
 				break
@@ -258,7 +274,7 @@ function network.dispatch(connection, data)
 	end
 end
 function network.respond(connection, ack, ret)
-	connection:send("\30&"..serialize{ack, ret})
+	connection:_send("#",{ack, ret})
 end
 
 return network
