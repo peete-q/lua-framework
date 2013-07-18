@@ -5,7 +5,6 @@ local function _newset()
     local set = {}
     return setmetatable(set, {__index = {
         insert = function(set, value)
-			assert(value)
             if not reverse[value] then
                 table.insert(set, value)
                 reverse[value] = table.getn(set)
@@ -27,7 +26,7 @@ end
 local _readings = _newset()
 local _writings = _newset()
 local _listenings = {}
-local _connecteds = {}
+local _connectings = {}
 local _listener = {}
 function _listener.close(self, mode)
 	if self._socket then
@@ -103,7 +102,7 @@ end
 function _connection.close(self, mode)
 	if self._socket then
 		_readings:remove(self._socket)
-		_connecteds[self._socket] = nil
+		_connectings[self._socket] = nil
 		self._socket:shutdown(mode or "both")
 		self._socket:close()
 		self._socket = false
@@ -130,7 +129,7 @@ function _connection.new(s)
 	if s then
 		s:settimeout(0)
 		_readings:insert(s)
-		_connecteds[s] = self
+		_connectings[s] = self
 	end
 	return self
 end
@@ -230,14 +229,14 @@ function network.step(timeout)
 				print("receive failed:"..e)
 				break
 			end
-			local c = _connecteds[v]
+			local c = _connectings[v]
 			if c._receivable then
 				c._dispatch(c, loadstring(s)())
 			end
 		end
 	end
 	for k, v in ipairs(writable) do
-		local c = _connecteds[v]
+		local c = _connectings[v]
 		while c._cache.outgoing do
 			if c._cache.outgoing.onAck then
 				table.insert(_waitingAcks, c._cache.outgoing.onAck)
