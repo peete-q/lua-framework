@@ -1,10 +1,13 @@
 require "serialize"
 local socket = require "socket"
+local encode = serialize
+local decode = function(text) return loadstring(text)() end
 local function _newset()
     local reverse = {}
     local set = {}
     return setmetatable(set, {__index = {
         insert = function(set, value)
+			assert(value)
             if not reverse[value] then
                 table.insert(set, value)
                 reverse[value] = table.getn(set)
@@ -27,7 +30,9 @@ local _readings = _newset()
 local _writings = _newset()
 local _listenings = {}
 local _connectings = {}
-local _listener = {}
+local _listener = {
+	__type = "network.listener",
+}
 function _listener.close(self, mode)
 	if self._socket then
 		_readings:remove(self._socket)
@@ -37,7 +42,10 @@ function _listener.close(self, mode)
 		self._socket = false
 	end
 end
-local _waitingAcks = {}
+local _waitings = {
+	index = 0
+}
+
 local _connection = {
 	__type = "network.connection",
 }
@@ -128,6 +136,8 @@ function _connection.new(s)
 	setmetatable(self, _connection)
 	if s then
 		s:settimeout(0)
+		s:setoption("tcp-nodelay", true)
+		s:setoption("keepalive", true)
 		_readings:insert(s)
 		_connectings[s] = self
 	end
@@ -177,9 +187,20 @@ local function _do_ack(c, data)
 	if data[1] == "#" then
 		local body = data[2]
 		local ack = body[1]
-		_waitingAcks[ack](unpack(body[2]))
-		_waitingAcks[ack] = nil
+		_waitings[ack](unpack(body[2]))
+		_waitings[ack] = nil
 		return true
+	end
+end
+local function _try_ack(c, data)
+	if data[1] == "#" then
+		local body = data[2]
+		local ack = body[1]
+		if _waitings[ack] then
+			_waitings[ack](unpack(body[2]))
+			_waitings[ack] = nil
+			return true
+		end
 	end
 end
 
@@ -187,6 +208,7 @@ network = {
 	_connection = _connection,
 	_do_rpc = _do_rpc,
 	_do_ack = _do_ack,
+	_try_ack = _try_ack,
 	_rpc_name = _rpc_name,
 }
 function network.listen(ip, port, cb)
@@ -219,19 +241,33 @@ function network.step(timeout)
 		if listener then
 			local s, e = v:accept()
 			if not s then
+				if e == "closed" then
+					break
+				end
 				print("accept failed:"..e)
 				break
 			end
 			listener.incoming(_connection.new(s))
 		else
-			local s, e = v:receive()
+			local s, e = v:receive(10)
 			if not s then
-				print("receive failed:"..e)
+				if e == "closed" then
+					break
+				end
+				print("receive head failed:"..e)
+				break
+			end
+			local s, e = v:receive(tonumber(s))
+			if not s then
+				if e == "closed" then
+					break
+				end
+				print("receive body failed:"..e)
 				break
 			end
 			local c = _connectings[v]
 			if c._receivable then
-				c._dispatch(c, loadstring(s)())
+				c._dispatch(c, decode(s))
 			end
 		end
 	end
@@ -239,11 +275,16 @@ function network.step(timeout)
 		local c = _connectings[v]
 		while c._cache.outgoing do
 			if c._cache.outgoing.onAck then
-				table.insert(_waitingAcks, c._cache.outgoing.onAck)
-				table.insert(c._cache.outgoing.data, #_waitingAcks)
+				_waitings.index = _waitings.index + 1
+				table.insert(_waitings, _waitings.index, c._cache.outgoing.onAck)
+				table.insert(c._cache.outgoing.data, _waitings.index)
 			end
-			local ok, e = v:send(serialize(c._cache.outgoing.data).."\n")
+			local s = encode(c._cache.outgoing.data)
+			local ok, e = v:send(string.format("0x%08x%s", #s, s))
 			if not ok then
+				if e == "closed" or e == "timeout" then
+					break
+				end
 				print("send failed:"..e)
 				break
 			end
