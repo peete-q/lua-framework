@@ -3,6 +3,7 @@ local network = dofile "network.lua"
 
 local _do_rpc = network._do_rpc
 local _do_ack = network._do_ack
+local _try_ack = network._try_ack
 local _rpc_name = network._rpc_name
 
 local proxy = {
@@ -87,7 +88,9 @@ end
 proxy.upward = _gateway_upward
 
 local function _gateway_downward(self, data)
-	if data[1] == ">" then
+	if data[1] ~= ">" then
+		print("unknown message")
+	elseif not _try_ack(self, data[2][2]) then
 		local body = data[2]
 		local index = body[1]
 		local c = self.clients[index]
