@@ -1,7 +1,13 @@
 require "serialize"
+local binary = require "binary"
 local socket = require "socket"
+local encode = binary.pack
+local decode = binary.unpack
 local encode = serialize
 local decode = function(text) return loadstring(text)() end
+local enhead = binary.tostring
+local dehead = binary.tonumber
+
 local function _newset()
     local reverse = {}
     local set = {}
@@ -45,10 +51,12 @@ end
 local _waitings = {
 	index = 0
 }
-
 local _connection = {
 	__type = "network.connection",
 }
+local network = {
+}
+
 function _connection.__index(self, key)
 	local m = _connection[key]
 	if m then
@@ -204,12 +212,13 @@ local function _try_ack(c, data)
 	end
 end
 
-network = {
-	_connection = _connection,
-	_do_rpc = _do_rpc,
-	_do_ack = _do_ack,
-	_try_ack = _try_ack,
-	_rpc_name = _rpc_name,
+local _status = {
+	sendCounter = 0,
+	receiveCounter = 0,
+	sendLength = 0,
+	receiveLength = 0,
+	receiveMonitor = nil,
+	sendMonitor = nil,
 }
 function network.listen(ip, port, cb)
 	local s = assert(socket.bind(ip, port))
@@ -249,15 +258,15 @@ function network.step(timeout)
 			end
 			listener.incoming(_connection.new(s))
 		else
-			local s, e = v:receive(10)
-			if not s then
+			local n, e = v:receive(4)
+			if not n then
 				if e == "closed" then
 					break
 				end
 				print("receive head failed:"..e)
 				break
 			end
-			local s, e = v:receive(tonumber(s))
+			local s, e = v:receive(dehead(n))
 			if not s then
 				if e == "closed" then
 					break
@@ -268,6 +277,12 @@ function network.step(timeout)
 			local c = _connectings[v]
 			if c._receivable then
 				c._dispatch(c, decode(s))
+			end
+			
+			_status.receiveCounter = _status.receiveCounter + 1
+			_status.receiveLength = _status.receiveLength + 10 + #s
+			if _status.receiveMonitor then
+				_status.receiveMonitor()
 			end
 		end
 	end
@@ -280,7 +295,7 @@ function network.step(timeout)
 				table.insert(c._cache.outgoing.data, _waitings.index)
 			end
 			local s = encode(c._cache.outgoing.data)
-			local ok, e = v:send(string.format("0x%08x%s", #s, s))
+			local ok, e = v:send(enhead(#s)..s)
 			if not ok then
 				if e == "closed" or e == "timeout" then
 					break
@@ -289,6 +304,12 @@ function network.step(timeout)
 				break
 			end
 			c._cache.outgoing = c._cache.outgoing.next
+			
+			_status.sendCounter = _status.sendCounter + 1
+			_status.sendLength = _status.sendLength + 10 + #s
+			if _status.sendMonitor then
+				_status.sendMonitor()
+			end
 		end
 		if not c._cache.outgoing then
 			_writings:remove(v)
@@ -316,5 +337,12 @@ end
 function network.respond(connection, ack, ret)
 	connection:_send("#",{ack, ret})
 end
+
+network._connection = _connection
+network._do_rpc = _do_rpc
+network._do_ack = _do_ack
+network._try_ack = _try_ack
+network._rpc_name = _rpc_name
+network._status = _status
 
 return network
