@@ -1,10 +1,7 @@
-require "serialize"
 local binary = require "binary"
 local socket = require "socket"
 local encode = binary.pack
 local decode = binary.unpack
-local encode = serialize
-local decode = function(text) return loadstring(text)() end
 local enhead = binary.tostring
 local dehead = binary.tonumber
 
