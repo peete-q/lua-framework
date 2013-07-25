@@ -213,12 +213,12 @@ local function _try_ack(c, data)
 end
 
 local _status = {
-	sendCounter = 0,
-	receiveCounter = 0,
-	sendLength = 0,
-	receiveLength = 0,
-	receiveMonitor = nil,
-	sendMonitor = nil,
+	sends = 0,
+	receives = 0,
+	sent = 0,
+	received = 0,
+	receiver = nil,
+	sender = nil,
 }
 function network.listen(ip, port, cb)
 	local s = assert(socket.bind(ip, port))
@@ -246,70 +246,102 @@ end
 function network.step(timeout)
 	local readable, writable = socket.select(_readings, _writings, timeout)
 	for k, v in ipairs(readable) do
-		local listener = _listenings[v]
-		if listener then
-			local s, e = v:accept()
-			if not s then
-				if e == "closed" then
+		repeat
+			local listener = _listenings[v]
+			if listener then
+				local s, e = v:accept()
+				if not s then
+					if e == "closed" then
+						break
+					end
+					print("accept failed:"..e)
 					break
 				end
-				print("accept failed:"..e)
-				break
-			end
-			listener.incoming(_connection.new(s))
-		else
-			local n, e = v:receive(4)
-			if not n then
-				if e == "closed" then
+				listener.incoming(_connection.new(s))
+			else
+				local c = _connectings[v]
+				if not c._cache.need then
+					local n, e = v:receive(4)
+					if not n then
+						if e == "closed" then
+							break
+						end
+						print("receive head failed:"..e)
+						break
+					end
+					c._cache.need = dehead(n)
+				end
+				local s, e, read = v:receive(c._cache.need)
+				if not s then
+					if e == "timeout" then
+						c._cache.inpending = (c._cache.inpending or "")..read
+						c._cache.need = c._cache.need - #read
+						break
+					end
+					if e == "closed" then
+						break
+					end
+					print("receive body failed:"..e)
 					break
 				end
-				print("receive head failed:"..e)
-				break
-			end
-			local s, e = v:receive(dehead(n))
-			if not s then
-				if e == "closed" then
+				
+				if #s < c._cache.need then
+					c._cache.inpending = s
+					c._cache.need = c._cache.need - #s
 					break
 				end
-				print("receive body failed:"..e)
-				break
+				c._cache.need = nil
+				
+				if c._cache.inpending then
+					s = c._cache.inpending..s
+					c._cache.inpending = nil
+				end
+				
+				if c._receivable then
+					c._dispatch(c, decode(s))
+				end
+				
+				_status.receives = _status.receives + 1
+				_status.received = _status.received + 4 + #s
+				if _status.receiver then
+					_status.receiver()
+				end
 			end
-			local c = _connectings[v]
-			if c._receivable then
-				c._dispatch(c, decode(s))
-			end
-			
-			_status.receiveCounter = _status.receiveCounter + 1
-			_status.receiveLength = _status.receiveLength + 10 + #s
-			if _status.receiveMonitor then
-				_status.receiveMonitor()
-			end
-		end
+		until true
 	end
 	for k, v in ipairs(writable) do
 		local c = _connectings[v]
 		while c._cache.outgoing do
-			if c._cache.outgoing.onAck then
-				_waitings.index = _waitings.index + 1
-				table.insert(_waitings, _waitings.index, c._cache.outgoing.onAck)
-				table.insert(c._cache.outgoing.data, _waitings.index)
+			if not c._cache.outpending then
+				if c._cache.outgoing.onAck then
+					_waitings.index = _waitings.index + 1
+					table.insert(_waitings, _waitings.index, c._cache.outgoing.onAck)
+					table.insert(c._cache.outgoing.data, _waitings.index)
+				end
+				local data = encode(c._cache.outgoing.data)
+				c._cache.outpending = enhead(#data)..data
 			end
-			local s = encode(c._cache.outgoing.data)
-			local ok, e = v:send(enhead(#s)..s)
+			local ok, e, wrote = v:send(c._cache.outpending, c._cache.wrote)
 			if not ok then
-				if e == "closed" or e == "timeout" then
+				if e == "timeout" then
+					c._cache.wrote = wrote + 1
+					break
+				end
+				if e == "closed" then
 					break
 				end
 				print("send failed:"..e)
 				break
 			end
-			c._cache.outgoing = c._cache.outgoing.next
+			c._cache.outpending = nil
+			c._cache.wrote = 1
 			
-			_status.sendCounter = _status.sendCounter + 1
-			_status.sendLength = _status.sendLength + 10 + #s
-			if _status.sendMonitor then
-				_status.sendMonitor()
+			_status.sends = _status.sends + 1
+			_status.sent = _status.sent + 4 + ok - c._cache.wrote
+			if _status.sender then
+				_status.sender()
 			end
+			c._cache.outgoing = c._cache.outgoing.next
 		end
 		if not c._cache.outgoing then
 			_writings:remove(v)
