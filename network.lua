@@ -155,14 +155,14 @@ end
 function _connection.getsockname(self)
 	return self._socket:getsockname()
 end
-local function _rpc_name(field)
+local function _rpcname(field)
 	local name = field[1]
 	for i = 2, #field do
 		name = name.."."..field[i]
 	end
 	return name
 end
-local function _do_rpc(c, data)
+local function _dorpc(c, data)
 	if data[1] == "@" then
 		local body = data[2]
 		local field = body[1]
@@ -188,7 +188,7 @@ local function _do_rpc(c, data)
 		return "ok", ack, {unpack(ret, 2)}, field, args
 	end
 end
-local function _do_ack(c, data)
+local function _doack(c, data)
 	if data[1] == "#" then
 		local body = data[2]
 		local ack = body[1]
@@ -197,7 +197,7 @@ local function _do_ack(c, data)
 		return true
 	end
 end
-local function _try_ack(c, data)
+local function _tryack(c, data)
 	if data[1] == "#" then
 		local body = data[2]
 		local ack = body[1]
@@ -208,7 +208,6 @@ local function _try_ack(c, data)
 		end
 	end
 end
-
 local _status = {
 	sends = 0,
 	receives = 0,
@@ -217,6 +216,139 @@ local _status = {
 	receiver = nil,
 	sender = nil,
 }
+local function _recvraw(c, v)
+	if not c._cache.need then
+		local n, e = v:receive(4)
+		if not n then
+			if e == "closed" then
+				return
+			end
+			print("receive head failed:"..e)
+			return
+		end
+		c._cache.need = dehead(n)
+	end
+	local s, e, read = v:receive(c._cache.need)
+	if not s then
+		if e == "timeout" then
+			c._cache.inpending = (c._cache.inpending or "")..read
+			c._cache.need = c._cache.need - #read
+			return
+		end
+		if e == "closed" then
+			return
+		end
+		print("receive body failed:"..e)
+		return
+	end
+	
+	if #s < c._cache.need then
+		c._cache.inpending = s
+		c._cache.need = c._cache.need - #s
+		return
+	end
+	c._cache.need = nil
+	
+	if c._cache.inpending then
+		s = c._cache.inpending..s
+		c._cache.inpending = nil
+	end
+	
+	if c._receivable then
+		c._dispatch(c, decode(s))
+	end
+	
+	_status.receives = _status.receives + 1
+	_status.received = _status.received + 4 + #s
+	if _status.receiver then
+		_status.receiver(_status.receives, _status.received)
+	end
+end
+local function _recvpack(c, v)
+	local t, e, size = v:receive()
+	if not t then
+		if e == "timeout" then
+			return
+		end
+		if e == "closed" then
+			return
+		end
+		print("receive body failed:"..e)
+		return
+	end
+	
+	if c._receivable then
+		c._dispatch(c, t)
+	end
+	
+	_status.receives = _status.receives + 1
+	_status.received = _status.received + size
+	if _status.receiver then
+		_status.receiver(_status.receives, _status.received)
+	end
+end
+local function _sendraw(c, v)
+	if not c._cache.outpending then
+		if c._cache.outgoing.onAck then
+			_waitings.index = _waitings.index + 1
+			table.insert(_waitings, _waitings.index, c._cache.outgoing.onAck)
+			table.insert(c._cache.outgoing.data, _waitings.index)
+		end
+		local data = encode(c._cache.outgoing.data)
+		c._cache.outpending = enhead(#data)..data
+	end
+	local ok, e, wrote = v:send(c._cache.outpending, c._cache.wrote)
+	if not ok then
+		if e == "timeout" then
+			c._cache.wrote = wrote + 1
+			return
+		end
+		if e == "closed" then
+			return
+		end
+		print("send failed:"..e)
+		return
+	end
+	c._cache.outpending = nil
+	c._cache.wrote = nil
+	
+	_status.sends = _status.sends + 1
+	_status.sent = _status.sent + ok
+	if _status.sender then
+		_status.sender()
+	end
+	return true
+end
+local function _sendpack(c, v)
+	if not c._cache.outpending then
+		if c._cache.outgoing.onAck then
+			_waitings.index = _waitings.index + 1
+			table.insert(_waitings, _waitings.index, c._cache.outgoing.onAck)
+			table.insert(c._cache.outgoing.data, _waitings.index)
+		end
+		c._cache.outpending = c._cache.outgoing.data
+	end
+	local ok, e, wrote = v:send(c._cache.outpending)
+	if not ok then
+		if e == "timeout" then
+			return
+		end
+		if e == "closed" then
+			return
+		end
+		print("send failed:"..e)
+		return
+	end
+	c._cache.outpending = nil
+	
+	_status.sends = _status.sends + 1
+	_status.sent = _status.sent + ok
+	if _status.sender then
+		_status.sender()
+	end
+	return true
+end
+
 function network.listen(ip, port, cb)
 	local s = assert(socket.bind(ip, port))
 	local self = {
@@ -257,86 +389,15 @@ function network.step(timeout)
 				listener.incoming(_connection.new(s))
 			else
 				local c = _connectings[v]
-				if not c._cache.need then
-					local n, e = v:receive(4)
-					if not n then
-						if e == "closed" then
-							break
-						end
-						print("receive head failed:"..e)
-						break
-					end
-					c._cache.need = dehead(n)
-				end
-				local s, e, read = v:receive(c._cache.need)
-				if not s then
-					if e == "timeout" then
-						c._cache.inpending = (c._cache.inpending or "")..read
-						c._cache.need = c._cache.need - #read
-						break
-					end
-					if e == "closed" then
-						break
-					end
-					print("receive body failed:"..e)
-					break
-				end
-				
-				if #s < c._cache.need then
-					c._cache.inpending = s
-					c._cache.need = c._cache.need - #s
-					break
-				end
-				c._cache.need = nil
-				
-				if c._cache.inpending then
-					s = c._cache.inpending..s
-					c._cache.inpending = nil
-				end
-				
-				if c._receivable then
-					c._dispatch(c, decode(s))
-				end
-				
-				_status.receives = _status.receives + 1
-				_status.received = _status.received + 4 + #s
-				if _status.receiver then
-					_status.receiver()
-				end
+				network._receive(c, v)
 			end
 		until true
 	end
 	for k, v in ipairs(writable) do
 		local c = _connectings[v]
 		while c._cache.outgoing do
-			if not c._cache.outpending then
-				if c._cache.outgoing.onAck then
-					_waitings.index = _waitings.index + 1
-					table.insert(_waitings, _waitings.index, c._cache.outgoing.onAck)
-					table.insert(c._cache.outgoing.data, _waitings.index)
-				end
-				local data = encode(c._cache.outgoing.data)
-				c._cache.outpending = enhead(#data)..data
-			end
-			local ok, e, wrote = v:send(c._cache.outpending, c._cache.wrote)
-			if not ok then
-				if e == "timeout" then
-					c._cache.wrote = wrote + 1
-					break
-				end
-				if e == "closed" then
-					break
-				end
-				print("send failed:"..e)
+			if not network._send(c, v) then
 				break
-			end
-			c._cache.outpending = nil
-			c._cache.wrote = 1
-			
-			_status.sends = _status.sends + 1
-			_status.sent = _status.sent + 4 + ok - c._cache.wrote
-			if _status.sender then
-				_status.sender()
 			end
 			c._cache.outgoing = c._cache.outgoing.next
 		end
@@ -346,8 +407,8 @@ function network.step(timeout)
 	end
 end
 function network.dispatch(connection, data)
-	if not _do_ack(connection, data) then
-		local ok, ack, ret, field, args = _do_rpc(connection, data)
+	if not _doack(connection, data) then
+		local ok, ack, ret, field, args = _dorpc(connection, data)
 		if ok == "noprivilege" then
 			if connection._noprivilege then
 				connection._noprivilege(connection, data)
@@ -357,7 +418,7 @@ function network.dispatch(connection, data)
 				connection._respond(connection, ack, ret)
 			end
 		elseif ok == "error" then
-			print("RPC error when call:".._rpc_name(field), ret)
+			print("RPC error when call:".._rpcname(field), ret)
 		elseif connection._receiver then
 			connection._receiver(data)
 		end
@@ -368,10 +429,12 @@ function network.respond(connection, ack, ret)
 end
 
 network._connection = _connection
-network._do_rpc = _do_rpc
-network._do_ack = _do_ack
-network._try_ack = _try_ack
-network._rpc_name = _rpc_name
+network._dorpc = _dorpc
+network._doack = _doack
+network._tryack = _tryack
+network._rpcname = _rpcname
 network._status = _status
+network._receive = _recvpack
+network._send = _sendpack
 
 return network

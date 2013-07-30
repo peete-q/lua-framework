@@ -1,14 +1,15 @@
 
-local network = dofile "network.lua"
+local network = require "network"
 
-local _do_rpc = network._do_rpc
-local _do_ack = network._do_ack
-local _try_ack = network._try_ack
-local _rpc_name = network._rpc_name
+local _dorpc = network._dorpc
+local _doack = network._doack
+local _tryack = network._tryack
+local _rpcname = network._rpcname
 
 local proxy = {
 	step = network.step,
 	connect = network.connect,
+	_status = network._status,
 }
 
 local _gateways = {}
@@ -70,6 +71,10 @@ function proxy.listen(ip, port, cb)
 				elseif head == "<" then -- message
 					local client = c.clients[index]
 					if client._receivable then
+						if type(body[2]) ~= "table" then
+							require"std"
+							print(data)
+						end
 						table.insert(body[2], data[3])
 						client._dispatch(client, body[2])
 					end
@@ -90,7 +95,7 @@ proxy.upward = _gateway_upward
 local function _gateway_downward(self, data)
 	if data[1] ~= ">" then
 		print("unknown message")
-	elseif not _try_ack(self, data[2][2]) then
+	elseif not _tryack(self, data[2][2]) then
 		local body = data[2]
 		local index = body[1]
 		local c = self.clients[index]
@@ -99,8 +104,8 @@ local function _gateway_downward(self, data)
 end
 
 local function _gateway_dispatch(connection, data)
-	if not _do_ack(connection, data) then
-		local ok, ack, ret, field, args = _do_rpc(connection, data)
+	if not _doack(connection, data) then
+		local ok, ack, ret, field, args = _dorpc(connection, data)
 		if ok == "noprivilege" then
 			if connection._noprivilege then
 				connection._noprivilege(connection, data)
@@ -112,7 +117,7 @@ local function _gateway_dispatch(connection, data)
 				connection._respond(connection, ack, ret)
 			end
 		elseif ok == "error" then
-			print("RPC error when call:".._rpc_name(field), ret)
+			print("RPC error when call:".._rpcname(field), ret)
 		elseif connection._receiver then
 			connection._receiver(data)
 		end
