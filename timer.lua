@@ -33,23 +33,23 @@ local function _query(n)
 		end
 	end
 end
-local _instance = {
-	__type = "timer.instance",
-}
-function _instance.restart(self, span, cb)
+
+local _handle = {}
+
+function _handle.restart(self, span, cb)
 	self:stop()
 	_counter = _counter + 1
 	self._site = _query(span)
 	self._site[self] = self
 end
-function _instance.stop(self)
+function _handle.stop(self)
 	if self._site and self._site[self] then
 		self._site[self] = nil
 		self._site = nil
 		_counter = _counter - 1
 	end
 end
-function _instance.running(self)
+function _handle.running(self)
 	return self._site ~= nil
 end
 
@@ -57,20 +57,20 @@ function timer.clock()
 	return os.clock()
 end
 function timer.new(span, cb)
-	local instance = {
-		__type = "timer.instance",
+	local handle = {
+		__type = "timer.handle",
 		span = span,
 		ring = timer.clock() + span,
 		cb = cb,
 		counter = _counter,
-		restart = _instance.restart,
-		stop = _instance.stop,
-		running = _instance.running,
+		restart = _handle.restart,
+		stop = _handle.stop,
+		running = _handle.running,
 	}
 	if span and cb then
-		instance:start(span, cb)
+		handle:start(span, cb)
 	end
-	return instance
+	return handle
 end
 function timer.step()
 	local now = timer.clock()
