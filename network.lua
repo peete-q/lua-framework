@@ -155,13 +155,6 @@ end
 function _connection.getsockname(self)
 	return self._socket:getsockname()
 end
-local function _rpcname(field)
-	local name = field[1]
-	for i = 2, #field do
-		name = name.."."..field[i]
-	end
-	return name
-end
 local function _dorpc(c, data)
 	if data[1] == "@" then
 		local body = data[2]
@@ -418,7 +411,7 @@ function network.dispatch(connection, data)
 				connection._respond(connection, ack, ret)
 			end
 		elseif ok == "error" then
-			print("RPC error when call:".._rpcname(field), ret)
+			print("RPC error when call:"..table.concat(field, "."), ret)
 		elseif connection._receiver then
 			connection._receiver(data)
 		end
@@ -432,7 +425,6 @@ network._connection = _connection
 network._dorpc = _dorpc
 network._doack = _doack
 network._tryack = _tryack
-network._rpcname = _rpcname
 network._status = _status
 network._receive = _recvpack
 network._send = _sendpack

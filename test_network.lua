@@ -1,4 +1,4 @@
-dofile "network.lua"
+local network = require "network"
 
 -- server
 local cmd = {
@@ -14,7 +14,7 @@ local cmd = {
 network.listen("127.0.0.1",10001, function(c)
 	print("accept", c) 
 	c:addPrivilege("cmd",cmd)
-	c:setReceiver(function(s) print("receive", s) end)
+	c:setReceiver(function(s) print("receive", unpack(s)) end)
 end)
 
 -- client

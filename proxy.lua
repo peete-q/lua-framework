@@ -4,7 +4,6 @@ local network = require "network"
 local _dorpc = network._dorpc
 local _doack = network._doack
 local _tryack = network._tryack
-local _rpcname = network._rpcname
 
 local proxy = {
 	step = network.step,
@@ -117,7 +116,7 @@ local function _gateway_dispatch(connection, data)
 				connection._respond(connection, ack, ret)
 			end
 		elseif ok == "error" then
-			print("RPC error when call:".._rpcname(field), ret)
+			print("RPC error when call:"..table.concat(field, "."), ret)
 		elseif connection._receiver then
 			connection._receiver(data)
 		end
