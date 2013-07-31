@@ -137,6 +137,7 @@ function _connection.new(s)
 		_receivable = true,
 		_dispatch = network.dispatch,
 		_respond = network.respond,
+		clients = false,
 	}
 	setmetatable(self, _connection)
 	if s then

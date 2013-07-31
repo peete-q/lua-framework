@@ -1,5 +1,5 @@
 
-local network = require "proxy"
+local network = require "network"
 local profiler = require "ProFi"
 local span = 0.0001
 local log = print
@@ -36,7 +36,7 @@ local cmd = {
 }
 
 local s
-network.listen("127.0.0.1",10003, function(c)
+network.listen("127.0.0.1",10033, function(c)
 	print("accept", c.clients) 
 	s = s or c
 	if c.clients then
@@ -45,7 +45,7 @@ network.listen("127.0.0.1",10003, function(c)
 	c:addPrivilege("cmd", cmd)
 	c:setReceiver(function(s) print("receive", s[1], s[2]) end)
 end)
-network.addGateway(10003)
+-- network.addGateway(10003)
 local fps = 0
 local time = os.clock()
 local maxm = 0

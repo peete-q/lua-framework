@@ -11,7 +11,7 @@ network._status.receiver = function()
 	if not spend then
 		spend = os.clock()
 		-- profiler:start()
-	elseif network._status.receives > 10000 and not record then
+	elseif network._status.receives > 1000 and not record then
 		log("spend", network._status.receives, os.clock() - spend)
 		-- profiler:stop()
 		-- profiler:report("gp-"..os.time()..".txt")
@@ -21,7 +21,8 @@ end
 
 -- gateway
 local s
-local gateway = network.launchGateway("127.0.0.1",10003)
+local gateway, e = network.launchGateway("127.0.0.1",10013)
+log(e or "ok")
 for i = 10004, 10014 do
 	gateway:listen("127.0.0.1", i, function(c) 
 		print("new client", c._socket)
@@ -41,7 +42,7 @@ for i = 10004, 10014 do
 			end,
 		}
 		s = s or c
-		-- c:addPrivilege("cmd", cmd)
+		c:addPrivilege("cmd", cmd)
 	end)
 end
 local fps = 0

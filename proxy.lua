@@ -23,7 +23,7 @@ function proxy.removeGateway(port)
 	_gateways[port] = nil
 end
 
-function proxy.queryGateway(port)
+function proxy.isGateway(port)
 	return _gateways[port]
 end
 
@@ -42,8 +42,7 @@ end
 function proxy.listen(ip, port, cb)
 	return network.listen(ip, port, function(c)
 		local ip, port = c:getsockname()
-		local tb = proxy.queryGateway(port)
-		if tb then
+		if proxy.isGateway(port) then
 			c.clients = {}
 			c:setReceiver(function(data)
 				local head = data[1]
@@ -79,8 +78,6 @@ function proxy.listen(ip, port, cb)
 					end
 				end
 			end)
-		else
-			c.clients = false
 		end
 		cb(c)
 	end)
