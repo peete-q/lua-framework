@@ -1,6 +1,6 @@
 
 local network = require "network"
-local profiler = require "ProFi"
+-- local profiler = require "ProFi"
 local span = 0.0001
 local log = print
 local print = function() end

@@ -1,5 +1,8 @@
 local lfs = require "lfs"
 
+-- extend key
+__undefined = false
+
 function tracebackfull()
 	local ret = ""
 	local level = 2  
@@ -61,7 +64,6 @@ function toprettystring(v, pre, map)
 	return ret
 end 
 
-none = false
 __type = type
 function type(o)
 	if __type(o) == "table" then
@@ -109,18 +111,18 @@ function stdpath(entry)
 	return string.gsub(entry, "\\", "/")
 end
 
-__entries = {}
+__loaded = {}
 function import(entry)
 	entry = stdpath(entry)
 	local mode = lfs.attributes(entry, "mode")
 	if mode == "file" then
-		if not __entries[entry] then
-			__entries[entry] = "loading"
-			__entries[entry] = {dofile(entry)}
-		elseif __entries[entry] == "loading" then
+		if not __loaded[entry] then
+			__loaded[entry] = "loading"
+			__loaded[entry] = {dofile(entry)}
+		elseif __loaded[entry] == "loading" then
 			error("import: loop or previous error loading '"..entry.."'")
 		end
-		return unpack(__entries[entry])
+		return unpack(__loaded[entry])
 	elseif mode == "directory" then
 		local exports = {}
 		for e in lfs.dir(entry) do
@@ -139,7 +141,7 @@ function import(entry)
 end
 
 local _ = string.byte("_")
-function metakey(name)
+function ismeta(name)
 	local i, j = string.byte(name, 1, 2)
 	return i == _ and j == _
 end
@@ -161,7 +163,7 @@ function strict(object, access)
 	if string.find(access, "w") then
 		if newindex then
 			meta.__newindex = function(self, key, value)
-				if metakey(key) then
+				if ismeta(key) then
 					return newindex(self, key, value)
 				end
 				if type(newindex(self, key, value)) == "nil" then
@@ -170,7 +172,7 @@ function strict(object, access)
 			end
 		else
 			meta.__newindex = function(self, key, value)
-				if metakey(key) then
+				if ismeta(key) then
 					rawset(self, key, value)
 					return value
 				end
@@ -181,7 +183,7 @@ function strict(object, access)
 	if string.find(access, "r") then
 		if index then
 			meta.__index = function(self, key, value)
-				if metakey(key) then
+				if ismeta(key) then
 					return value
 				end
 				if type(index(self, key, value)) == "nil" then
@@ -190,7 +192,7 @@ function strict(object, access)
 			end
 		else
 			meta.__index = function(self, key, value)
-				if metakey(key) then
+				if ismeta(key) then
 					return value
 				end
 				error("attempt to read undefined memmber '"..key.."' of '"..name.."'")
@@ -319,7 +321,7 @@ function class(name)
 			local map = {}
 			map[self] = self
 			for k, v in pairs(self) do
-				if not metakey(k) then
+				if not ismeta(k) then
 					if map[v] then
 						o[k] = map[v]
 					elseif field(v, "__clone") then
