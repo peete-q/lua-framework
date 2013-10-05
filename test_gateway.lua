@@ -36,12 +36,12 @@ while run do
 		local m = collectgarbage("count") / 1024
 		maxm = m > maxm and m or maxm
 		local info = string.format(
-			"%d	fps = %d	m = %.2f/%.2f	rs/ss/hd/rq/or/os/rd/st = %d/%d/%d/%d/%d/%d/%d/%d",
+			"%d	fps = %d	m = %.2f/%.2f	rs/ss/hd/rq/or/os/rd/st = %d/%d/%d/%d/%d/%d/%.2f/%.2f",
 			idx, fps, m, maxm,
 			network._stats.receives - rs, network._stats.sends - ss,
 			network._stats.handles - hd, network._stats.requests - rq,
 			network._stats.overreceives - ors, network._stats.oversends - oss,
-			network._stats.received - rd, network._stats.sent - st)
+			(network._stats.received - rd) / 1024, (network._stats.sent - st) / 1024)
 		print(info)
 		rs, ss = network._stats.receives, network._stats.sends
 		hd, rq = network._stats.handles, network._stats.requests

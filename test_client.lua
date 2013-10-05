@@ -18,18 +18,20 @@ local client = function(i, count)
 		end
 		local now = os.clock()
 		network.step(span)
+		local dummy = function()
+		end
 		while not count or count > 0 do
 			if count then
 				count = count - 1
 			end
 			
 			local h = c.cmd.hi("say hi")
-			h.onAck = function(...)
-				-- print("ack", ...)
-			end
-			c.cmd.hello("say hello")
-			c.cmd.sub.a("sub.a")
-			c:send("xxxxxxx")
+			h.onAck = dummy
+			local h = c.cmd.hello("say hello")
+			h.onAck = dummy
+			local h = c.cmd.sub.a("sub.a")
+			h.onAck = dummy
+			c:send(string.rep("x", 1024))
 			network.step(span)
 			socket.sleep(0.001)
 		end
@@ -60,7 +62,7 @@ end
 print("dorpc spend", os.clock() - now)
 local go = lanes.gen("*", client)
 
-local nb = 50
+local nb = 10
 local tb = {}
 for i = 1, nb do
 	tb[i] = go(math.random(10001, 10051), nil)
