@@ -14,7 +14,7 @@ local cmd = {
 network.listen("127.0.0.1",10001, function(c)
 	print("accept", c) 
 	c:addPrivilege("cmd",cmd)
-	c:setReceiver(function(s) print("receive", unpack(s)) end)
+	c:setReceiver(function(s) print("receive", s) end)
 end)
 
 -- client
@@ -26,7 +26,7 @@ network.connect("127.0.0.1",10001, function(c, e)
 	network.step(1)
 	local h = c.cmd.hi("say hi")
 	h.onAck = function(...) print("ack", ...) end
-	c.cmd.hello("say hi")
+	c.cmd.hello("say hello")
 	c.cmd.sub.a("sub.a")
 	c:send("xxxxxxx")
 	for i = 1, 10 do

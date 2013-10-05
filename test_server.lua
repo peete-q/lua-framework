@@ -1,18 +1,17 @@
 
-local network = require "network"
+local network = require "proxy"
 -- local profiler = require "ProFi"
 local span = 0.0001
-local log = print
-local print = function() end
 local run = true
 local spend
 
-network._status.receiver = function()
+log = print
+network._stats.receiver = function()
 	if not spend then
 		spend = os.clock()
 		-- profiler:start()
-	elseif network._status.receives > 10000 and not record then
-		log("spend", network._status.receives, os.clock() - spend)
+	elseif network._stats.receives > 10000 and not record then
+		print("spend", network._stats.receives, os.clock() - spend)
 		-- profiler:stop()
 		-- profiler:report("sp-"..os.time()..".txt")
 		record = true
@@ -21,51 +20,48 @@ end
 -- server
 local cmd = {
 	hello = function(...)
-		print("hello", ...)
+		-- print("hello", ...)
 	end,
 	hi = function(...)
-		print("hi", ...)
+		-- print("hi", ...)
 		return "hi.ack"
 	end,
-	start = function()
-	end,
-	stop = function()
-		log("stop", os.clock() - time)
-	end,
-	sub = {a = print, b = print},
+	sub = {a = function() end},
 }
 
-local s
-network.listen("127.0.0.1",10033, function(c)
-	print("accept", c.clients) 
-	s = s or c
-	if c.clients then
+network.addGateway(20001)
+network.listen("127.0.0.1",20001, function(c)
+	if c._clients then
 		return
 	end
 	c:addPrivilege("cmd", cmd)
-	c:setReceiver(function(s) print("receive", s[1], s[2]) end)
+	c:setReceiver(function(s, ...)
+	end)
 end)
--- network.addGateway(10003)
-local fps = 0
-local time = os.clock()
-local maxm = 0
+
+local now = os.clock()
+local idx, fps, maxm = 0, 0, 0
+local rs, ss, hd, rq, ors, oss, rd, st = 0, 0, 0, 0, 0, 0, 0, 0
 while run do
 	fps = fps + 1
 	network.step(span)
-	if os.clock() - time > 1 then
-		local m = (collectgarbage("count")/1024)
+	if os.clock() - now > 1 then
+		idx = idx + 1
+		local m = collectgarbage("count") / 1024
 		maxm = m > maxm and m or maxm
-		minf = minf or fps
-		minf = fps < minf and fps or minf
-		local a, b, c, rb, wb = 0, 0, 0, 0, 0
-		if s then a, b, c, rb, wb = s._socket:getstats() end
-		os.execute("title server fps = "..fps.."/"..minf..
-			" r/w = "..network._status.receives.."/"..network._status.sends..
-			" m = "..m.."/"..maxm..
-			" rb/wb = "..rb.."/"..wb)
-		network._status.receives = 0
-		network._status.sends = 0
-		time = os.clock()
+		local info = string.format(
+			"%d	fps = %d	m = %.2f/%.2f	rs/ss/hd/rq/or/os/rd/st = %d/%d/%d/%d/%d/%d/%d/%d",
+			idx, fps, m, maxm,
+			network._stats.receives - rs, network._stats.sends - ss,
+			network._stats.handles - hd, network._stats.requests - rq,
+			network._stats.overreceives - ors, network._stats.oversends - oss,
+			network._stats.received - rd, network._stats.sent - st)
+		print(info)
+		rs, ss = network._stats.receives, network._stats.sends
+		hd, rq = network._stats.handles, network._stats.requests
+		ors, oss = network._stats.overreceives, network._stats.oversends
+		rd, st = network._stats.received, network._stats.sent
+		now = os.clock()
 		fps = 0
 	end
 end
