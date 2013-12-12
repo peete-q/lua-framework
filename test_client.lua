@@ -6,25 +6,25 @@ local stream = require "stream"
 local span = 0.00001
 
 local linda = lanes.linda()
-local client = function(i, count)
+local client = function(p, n)
 	local spend
 	-- client
 	local network = require "network"
-	
-	network.connect("127.0.0.1", i, function(c, e)
-		if not c then
-			print("connect failed", e)
-			return
-		end
-		local now = os.clock()
-		network.step(span)
-		local dummy = function()
-		end
-		while not count or count > 0 do
-			if count then
-				count = count - 1
+	local set = {}
+	for i = 1, n do
+		network.connect("127.0.0.1", p, function(c, e)
+			if not c then
+				print("connect failed", e)
+				return
 			end
-			
+			table.insert(set, c)
+		end)
+	end
+	local now = os.clock()
+	local dummy = function()
+	end
+	while true do
+		for k, c in pairs(set) do
 			local h = c.remote.cmd.hi("say hi")
 			h.onAck = dummy
 			local h = c.remote.cmd.hello("say hello")
@@ -32,14 +32,11 @@ local client = function(i, count)
 			local h = c.remote.cmd.sub.a("sub.a")
 			h.onAck = dummy
 			c:send(string.rep("x", 1024))
-			network.step(span)
-			socket.sleep(0.001)
 		end
-		spend = os.clock() - now
-		while true do
-			network.step(span)
-		end
-	end)
+		network.step(span)
+		socket.sleep(span)
+	end
+	spend = os.clock() - now
 	return spend
 end
 
@@ -62,10 +59,10 @@ end
 print("dorpc spend", os.clock() - now)
 local go = lanes.gen("*", client)
 
-local nb = 10
+local nb = 1
 local tb = {}
 for i = 1, nb do
-	tb[i] = go(math.random(10001, 10051), nil)
+	tb[i] = go(math.random(10001, 10051), 100)
 	socket.sleep(0.1)
 end
 local k = nb
