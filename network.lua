@@ -1,5 +1,7 @@
 local stream = require "stream"
 local socket = require "socket"
+local evcore = require "event.core"
+local evbase = evcore.newbase()
 
 local function _newset()
     local reverse = {}
@@ -53,6 +55,8 @@ local network = {
 	FLAG_RPC	= 1,
 	FLAG_ACK	= 2,
 	FLAG_CUSTOM	= 3,
+	
+	_use_event  = true,
 }
 
 _connection.__index = _connection
@@ -97,7 +101,7 @@ end
 function _connection._send(self, ...)
 	assert(not self._closed, "connection closed")
 	if not self._packet.first then
-		_writings:insert(self._socket)
+		self:_ready()
 		self._packet.first = {
 			data = {...},
 		}
@@ -110,8 +114,13 @@ function _connection._send(self, ...)
 	end
 	return self._packet.last
 end
+local _evwritings = {}
 function _connection._ready(self)
 	_writings:insert(self._socket)
+	if not _evwritings[self._evwriter] then
+		_evwritings[self._evwriter] = self._evwriter
+		self._evwriter:add()
+	end
 end
 function _connection._noprivilege(self, rpc)
 	print("RPC error: noprivilege '"..rpc.."'")
@@ -172,6 +181,7 @@ function _connection.new(s)
 		_closed = nil,
 		_clients = nil,
 		_receiver = nil,
+		_evreader = nil,
 		onClosed = nil,
 		remote = {},
 	}
@@ -203,6 +213,14 @@ function _connection.new(s)
 		s:setreader(stream.new())
 		s:setwriter(stream.new())
 		_readings:insert(s)
+		self._evreader = evbase:newevent(s, evcore.EV_READ + evcore.EV_PERSIST, function(e, w)
+			network._receive(self, s)
+		end)
+		self._evreader:add()
+		
+		self._evwriter = evbase:newevent(s, evcore.EV_WRITE, function(e, w)
+			network._send(self, s)
+		end)
 		_connectings[s] = self
 	end
 	return self
@@ -306,6 +324,7 @@ function network._send(c, v)
 		
 		if writer:empty() then
 			_writings:remove(v)
+			_evwritings[c._evwriter] = nil
 		end
 		
 		_stats.sends = _stats.sends + 1
@@ -322,11 +341,26 @@ function network.listen(ip, port, cb)
 		close = _listener.close,
 	}
 	_readings:insert(s)
+	
 	_listenings[s] = {
 		ip = ip,
 		port = port,
 		incoming = cb,
 	}
+	
+	self._evreader = evbase:newevent(s, evcore.EV_READ + evcore.EV_PERSIST, function(e, w)
+		local s, e = self._socket:accept()
+		if not s then
+			if e == "closed" then
+				return
+			end
+			print("accept failed:"..e)
+			return
+		end
+		cb(_connection.new(s))
+	end)
+	self._evreader:add()
+	
 	s:settimeout(0)
 	return self
 end
@@ -339,6 +373,10 @@ function network.connect(ip, port, cb)
 	return c, e
 end
 function network.step(timeout)
+	if network._use_event then
+		evbase:loop(evcore.EVLOOP_NONBLOCK)
+		return
+	end
 	local readable, writable = socket.select(_readings, _writings, timeout)
 	for k, v in ipairs(readable) do
 		repeat

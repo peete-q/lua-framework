@@ -59,10 +59,10 @@ end
 print("dorpc spend", os.clock() - now)
 local go = lanes.gen("*", client)
 
-local nb = 1
+local nb = 10
 local tb = {}
 for i = 1, nb do
-	tb[i] = go(math.random(10001, 10051), 100)
+	tb[i] = go(math.random(10001, 10001), 50)
 	socket.sleep(0.1)
 end
 local k = nb

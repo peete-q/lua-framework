@@ -25,8 +25,8 @@ network.addGateway(10003)
 local gateway = network.launchGateway("127.0.0.1",10003)
 gateway:listen("127.0.0.1",10004, function(c) 
 	print("new client", c._socket)
-	-- c.remote.cmd.hi("g2c hi")
-	-- c:send("xxxxxxx")
+	c.remote.cmd.hi("g2c hi")
+	c:send("xxxxxxx")
 end)
 network.step(1)
 
@@ -39,12 +39,11 @@ network.connect("127.0.0.1",10004, function(c, e)
 	c:addPrivilege("cmd", cmd)
 	c:setReceiver(function(s, ...) print("client receive", s, ...) end)
 	network.step(1)
-	print('cccccccc', c._socket:getwriter():size())
-	-- local h = c.remote.cmd.hi("say hi")
-	-- h.onAck = function(...) print("ack", ...) end
+	local h = c.remote.cmd.hi("say hi")
+	h.onAck = function(...) print("ack", ...) end
 	c.remote.cmd.hello("say hello")
-	-- c.remote.cmd.sub.a("sub.a")
-	-- c:send("xxxxxxx")
+	c.remote.cmd.sub.a("sub.a")
+	c:send("xxxxxxx")
 	for i = 1, 10 do
 		network.step(1)
 	end
