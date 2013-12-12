@@ -55,28 +55,7 @@ local network = {
 	FLAG_CUSTOM	= 3,
 }
 
-function _connection.__index(self, key)
-	local m = _connection[key]
-	if m then
-		return m
-	end
-	local f = self._factors[key]
-	if f then
-		return f()
-	end
-	local rpc = {}
-	local field = {}
-	setmetatable(rpc, {
-		__index = function(rpc, key)
-			table.insert(field, key)
-			return rpc
-		end,
-		__call = function(rpc, ...)
-			return self:_send(network.FLAG_RPC, field, {...})
-		end
-	})
-	return rpc[key]
-end
+_connection.__index = _connection
 function _connection.addPrivilege(self, key, privilege)
 	self._privilege[key] = privilege
 end
@@ -117,19 +96,19 @@ end
 -- private
 function _connection._send(self, ...)
 	assert(not self._closed, "connection closed")
-	if not self._cache.outgoing then
+	if not self._packet.first then
 		_writings:insert(self._socket)
-		self._cache.outgoing = {
+		self._packet.first = {
 			data = {...},
 		}
-		self._cache.last = self._cache.outgoing
+		self._packet.last = self._packet.first
 	else
-		self._cache.last.next = {
+		self._packet.last.next = {
 			data = {...},
 		}
-		self._cache.last = self._cache.last.next
+		self._packet.last = self._packet.last.next
 	end
-	return self._cache.last
+	return self._packet.last
 end
 function _connection._ready(self)
 	_writings:insert(self._socket)
@@ -186,21 +165,37 @@ function _connection.new(s)
 	local self = {
 		_socket = s,
 		_privilege = {},
-		_cache = {},
-		_factors = {},
-		_receiver = false,
+		_packet = {},
 		_receivable = true,
 		_dispatch = network.dispatch,
 		_respond = network.respond,
-		_closed = false,
-		_clients = false,
-		onClosed = false,
+		_closed = nil,
+		_clients = nil,
+		_receiver = nil,
+		onClosed = nil,
+		remote = {},
 	}
 	self._dispatchers = {
 		[network.FLAG_RPC] = _connection._dorpc,
 		[network.FLAG_ACK] = _connection._doack,
 	}
 	setmetatable(self, _connection)
+	
+	local _remote_call = function(_, key)
+		local rpc = {}
+		local field = {key}
+		setmetatable(rpc, {
+			__index = function(rpc, key)
+				table.insert(field, key)
+				return rpc
+			end,
+			__call = function(rpc, ...)
+				return self:_send(network.FLAG_RPC, field, {...})
+			end
+		})
+		return rpc
+	end
+	setmetatable(self.remote, {__index = _remote_call, __newindex = _remote_call})
 	if s then
 		s:settimeout(0)
 		s:setoption("tcp-nodelay", true)
@@ -254,44 +249,43 @@ function network._receive(c, v)
 	
 	local reader = v:getreader()
 	while true do
-		if not c._cache.need then
+		if not c._packet.need then
 			if reader:unread() < 4 then
 				break
 			end
-			c._cache.need = reader:readf("D")
+			c._packet.need = reader:readf("D")
 		end
 		
-		if reader:unread() < c._cache.need then
+		if reader:unread() < c._packet.need then
 			break
 		end
 		
-		local tail = reader:tell() + c._cache.need
+		local tail = reader:tell() + c._packet.need
 		local nb = reader:readf("B")
 		if c._receivable then
 			c._dispatch(c, reader, nb, tail)
 		else
 			reader:read(nb)
 		end
-		c._cache.need = nil
+		c._packet.need = nil
 		_stats.handles = _stats.handles + 1
 	end
 	reader:remove(0, reader:tell())
-	reader:seek(0)
 end
 function network._send(c, v)
 	local writer = v:getwriter()
-	while c._cache.outgoing do
-		local outgoing = c._cache.outgoing
-		if outgoing.onAck then
+	while c._packet.first do
+		local this = c._packet.first
+		if this.onAck then
 			_waitings.index = _waitings.index + 1
-			_waitings[_waitings.index] = outgoing.onAck
-			table.insert(outgoing.data, _waitings.index)
+			_waitings[_waitings.index] = this.onAck
+			table.insert(this.data, _waitings.index)
 		end
 		local pos = writer:size()
-		writer:writef("B", #outgoing.data)
-		writer:write(unpack(outgoing.data))
+		writer:writef("B", #this.data)
+		writer:write(unpack(this.data))
 		writer:insertf(pos, "D", writer:size() - pos)
-		c._cache.outgoing = outgoing.next
+		c._packet.first = this.next
 		_stats.requests = _stats.requests + 1
 	end
 	

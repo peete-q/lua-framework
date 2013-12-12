@@ -25,11 +25,11 @@ local client = function(i, count)
 				count = count - 1
 			end
 			
-			local h = c.cmd.hi("say hi")
+			local h = c.remote.cmd.hi("say hi")
 			h.onAck = dummy
-			local h = c.cmd.hello("say hello")
+			local h = c.remote.cmd.hello("say hello")
 			h.onAck = dummy
-			local h = c.cmd.sub.a("sub.a")
+			local h = c.remote.cmd.sub.a("sub.a")
 			h.onAck = dummy
 			c:send(string.rep("x", 1024))
 			network.step(span)

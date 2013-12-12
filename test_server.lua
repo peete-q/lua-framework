@@ -38,6 +38,14 @@ network.listen("127.0.0.1",20001, function(c)
 	c:setReceiver(function(s, ...)
 	end)
 end)
+network.listen("127.0.0.1",20002, function(c)
+	c:send("PONG")
+	local ok, e = c._socket:send()
+	if not ok then
+		print(e)
+	end
+	c:close("receive")
+end)
 
 local now = os.clock()
 local idx, fps, maxm = 0, 0, 0

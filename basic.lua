@@ -1,11 +1,11 @@
-local lfs = require "lfs"
+-- local lfs = require "lfs"
 
 -- extend key
-__undefined = false
+__none = false
 
-function tracebackfull()
+function tracebackfull(level)
 	local ret = ""
-	local level = 2  
+	level = level or 2
 	ret = ret .. "stack traceback:\n"
 	while true do  
 		--get stack info  
@@ -66,13 +66,7 @@ end
 
 __type = type
 function type(o)
-	if __type(o) == "table" then
-		return o.__type or __type(o)
-	end
-	if __type(o) == "userdata" and getmetatable(o) then
-		return o.__type or __type(o)
-	end
-	return __type(o)
+	return field(o, "__type") or __type(o)
 end
 
 function field(o, name)
@@ -85,15 +79,9 @@ function field(o, name)
 end
 
 __tostring = tostring
-function tostring(v)
-	if type(v) == "class" then
-		return __tostring(v) .. " " .. v.__info
-	end
-	if type(v) == "object" then
-		return __tostring(v) .. " " .. v.__info
-	end
-	return __tostring(v)
-end
+-- function tostring(v)
+	-- return field(v, "__info") or __tostring(v)
+-- end
 
 function warning(condition, message)
 	if not condition then
@@ -141,14 +129,16 @@ function import(entry)
 end
 
 local _ = string.byte("_")
-function ismeta(name)
-	local i, j = string.byte(name, 1, 2)
-	return i == _ and j == _
+function ismeta(key)
+	if type(key) == "string" then
+		local i, j = string.byte(key, 1, 2)
+		return i == _ and j == _
+	end
 end
 
 function strict(object, access)
 	access = access or "rw"
-	local name = (object.__info or type(object))..":"..tostring(object)
+	local name = tostring(object)
 	local meta = getmetatable(object)
 	local newindex
 	local index
@@ -232,13 +222,29 @@ function clone(source, depth, map)
 	return new
 end
 
-function copy(dest, source, cover, map)
-	assert(dest)
-	
+function copy(dest, source, map)
 	map = map or {}
 	map[source] = source
 	for k, v in pairs(source) do
-		if cover or not dest[k] then
+		if map[v] then
+			dest[k] = map[v]
+		elseif field(v, "__copy") then
+			dest[k] = v:__copy()
+			map[v] = dest[k]
+		elseif type(v) == "table" and not v.__class and not v.__object then
+			dest[k] = clone(v, nil, map)
+			map[v] = dest[k]
+		else
+			dest[k] = v
+		end
+	end
+end
+
+function merge(dest, source, map)
+	map = map or {}
+	map[source] = source
+	for k, v in pairs(source) do
+		if not dest[k] then
 			if map[v] then
 				dest[k] = map[v]
 			elseif field(v, "__copy") then
@@ -256,90 +262,106 @@ end
 
 __classes = {}
 function class(name)
-	assert(not __classes[name], "redefine class:"..name)
+	assert(not __classes[name], "redefine class: "..name)
 	
-	local new = {
+	local cl = {
 		__type = "class",
-		__info = "class "..name,
+		__info = "class: "..name,
 		__class = name,
 	}
 	
 	local parent
 	function inherit(name)
-		assert(__classes[name], "inherit undefined class:"..name)
+		assert(__classes[name], "inherit undefined class: "..name)
 		parent = __classes[name]
 	end
 	
 	function define(content)
-		__classes[name] = new
-		copy(new, content)
+		__classes[name] = cl
+		copy(cl, content)
 		
 		if parent then
-			new.__parent = parent
-			copy(new, parent)
+			cl.__parent = parent
+			merge(cl, parent)
 		end
 		
-		new.__new = function (self)
+		cl.__new = function (self)
 			local o = {
 				__type = "object",
-				__info = "object of class "..new.__class,
-				__object = new.__class,
+				__object = cl.__class,
 			}
-			copy(o, new)
+			o.__info = "object {class: "..cl.__class.."} "..__tostring(o)
+			merge(o, cl)
+			
+			local __base
+			local dummy = {}
+			local parent = parent
 			local this = o
-			local base = {}
 			while parent do
-				base.__root = parent
-				this.__base = base
-				local dummy = {__base = {}}
-				setmetatable(dummy, {__index = o, __newindex = o})
-				setmetatable(base, {__index = function(self, key)
-					local v = rawget(self, "__root")[key]
-					if type(v) == "function" then
-						return function(...)
-							local arg = {...}
-							if arg[1] == self then
-								v(dummy, unpack(arg, 2))
-							else
-								v(...)
+				local base = {}
+				base.__meta = parent
+				setmetatable(base, {
+					__index = function(self, key)
+						local v = self.__meta[key]
+						if type(v) == "function" then
+							return function(_, ...)
+								__base = self.__base
+								v(dummy, ...)
 							end
 						end
-					end
-					return v
-				end})
-				base = dummy.__base
-				this = this.__base
+						return v
+					end,
+					}
+				)
+				this.__base = base
+				this = base
 				parent = parent.__parent
 			end
-			setmetatable(o, new)
+			
+			setmetatable(dummy, {
+				__index = function(self, key)
+					if key == "__base" then
+						return __base
+					end
+					local base = o.__base
+					while base do
+						if type(base.__meta[key]) == "function" then
+							__base = base
+							break
+						end
+						base = base.__base
+					end
+					return o[key]
+				end,
+				__newindex = o,
+				}
+			)
 			strict(o, "rw")
 			return o
 		end
 		
-		new.__clone = function (self)
-			local o = new:__new()
+		cl.__clone = function (self)
+			local o = cl:__new()
 			local map = {}
 			map[self] = self
 			for k, v in pairs(self) do
-				if not ismeta(k) then
-					if map[v] then
-						o[k] = map[v]
-					elseif field(v, "__clone") then
-						o[k] = field(v, "__clone")(v)
-						map[v] = o[k]
-					elseif type(v) == "table" and not v.__class then
-						o[k] = clone(v)
-						map[v] = o[k]
-					else
-						o[k] = v
-					end
+				if map[v] then
+					o[k] = map[v]
+				elseif field(v, "__clone") then
+					o[k] = field(v, "__clone")(v)
+					map[v] = o[k]
+				elseif type(v) == "table" and not v.__class then
+					o[k] = clone(v)
+					map[v] = o[k]
+				else
+					o[k] = v
 				end
 			end
 			return o
 		end
 		
-		strict(new, "rw")
-		getmetatable(new).__call = new.__new
+		strict(cl, "rw")
+		getmetatable(cl).__call = cl.__new
 	end
-	return new
+	return cl
 end

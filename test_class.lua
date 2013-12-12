@@ -6,7 +6,11 @@ local A = class 'A' define {
 		c = 'A.b.c'
 	},
 	f = function(self, ...)
-		print('A.f', self.a, self.b, A.b, self.b.c, ...)
+		print('A.f', ...)
+		self:g(...)
+	end,
+	g = function(self, ...)
+		print('A.g', ...)
 	end,
 }
 local a = A()
@@ -14,40 +18,88 @@ local a = A()
 local B = class 'B' inherit 'A' define {
 	a = 'B.a',
 	f = function(self, ...)
-		self.__base:f(...)
-		print('B.f', self.a, self.b, B.b, self.b.c, ...)
+		print('B.f', ...)
+		A.f(self, ...)
+	end,
+	g = function(self, ...)
+		print('B.g', ...)
+		A.g(self, ...)
 	end,
 }
 local b = B()
-b.b.c = 'b.b.c'
-local b2 = b:__clone()
 
 local C = class 'C' inherit 'B' define {
 	b = {
 		c = 'C.b.c'
 	},
 	f = function(self, ...)
-		self.__base:f(...)
-		print('C.f', self.a, self.b, C.b, self.b.c, ...)
+		print('C.f', ...)
+		B.f(self, ...)
+	end,
+	g = function(self, ...)
+		print('C.g', ...)
+		B.g(self, ...)
 	end,
 }
 local c = C()
+print(c)
 
-print '-----------'
+print ('-----------')
 a:f('a')
-print '-----------'
+print ('-----------')
 b:f('b')
-print '-----------'
-b.__base:f('b')
-print '-----------'
+print ('-----------')
 c:f('c')
-print '-----------'
-c.__base:f('c')
-c.__base.__base:f('c')
-print(c.a, c.__base.a, c.__base.__base.a)
-c.__base.a = 'change:c.__base.a'
-print(c.a, c.__base.a, c.__base.__base.a)
-print(c.b.c, c.__base.b.c, c.__base.__base.b.c)
-print '-----------'
-print(b.a, b.b, b.b.c)
-print(b2.a, b2.b, b2.b.c)
+
+__classes = {}
+local A = class 'A' define {
+	a = 'A.a',
+	b = {
+		c = 'A.b.c'
+	},
+	f = function(self, ...)
+		print('A.f', ...)
+		self:g(...)
+	end,
+	g = function(self, ...)
+		print('A.g', ...)
+	end,
+}
+local a = A()
+
+local B = class 'B' inherit 'A' define {
+	a = 'B.a',
+	f = function(self, ...)
+		print('B.f', ...)
+		self.__base:f(...)
+	end,
+	g = function(self, ...)
+		print('B.g', ...)
+		self.__base:g(...)
+	end,
+}
+local b = B()
+
+local C = class 'C' inherit 'B' define {
+	b = {
+		c = 'C.b.c'
+	},
+	f = function(self, ...)
+		print('C.f', ...)
+		self.__base:f(...)
+	end,
+	g = function(self, ...)
+		print('C.g', ...)
+		self.__base:g(...)
+	end,
+}
+local c = C()
+print(c)
+
+print ('-----------', a)
+a:f('a')
+print ('-----------', b, b.__base)
+b:f('b')
+print ('-----------', c, c.__base, c.__base.__base)
+c:f('c')
+

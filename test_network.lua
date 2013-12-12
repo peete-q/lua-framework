@@ -24,10 +24,10 @@ network.connect("127.0.0.1",10001, function(c, e)
 		return
 	end
 	network.step(1)
-	local h = c.cmd.hi("say hi")
+	local h = c.remote.cmd.hi("say hi")
 	h.onAck = function(...) print("ack", ...) end
-	c.cmd.hello("say hello")
-	c.cmd.sub.a("sub.a")
+	c.remote.cmd.hello("say hello")
+	c.remote.cmd.sub.a("sub.a")
 	c:send("xxxxxxx")
 	for i = 1, 10 do
 		network.step(1)
