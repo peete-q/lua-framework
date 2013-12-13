@@ -315,6 +315,7 @@ function network._send(c, v)
 		if not ok then
 			if e == "timeout" then
 				_stats.send_errors = _stats.send_errors + 1
+				_stats.backlogs = _stats.backlogs + writer:size()
 				return
 			end
 			if e == "closed" then
@@ -336,7 +337,6 @@ function network._send(c, v)
 			_stats.sender()
 		end
 	end
-	_stats.backlogs = _stats.backlogs + writer:size()
 end
 function network.listen(ip, port, cb)
 	local s = assert(socket.bind(ip, port))

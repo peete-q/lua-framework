@@ -53,7 +53,7 @@ local rs, ss, rd, wt, re, se, rc, st = 0, 0, 0, 0, 0, 0, 0, 0
 while run do
 	fps = fps + 1
 	network.step(span)
-	backlogs = math.max(backlogs, network._stats.backlogs)
+	backlogs = math.max(backlogs, network._stats.backlogs / 1024)
 	if os.clock() - now > 1 then
 		idx = idx + 1
 		local m = collectgarbage("count") / 1024
