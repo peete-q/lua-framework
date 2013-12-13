@@ -8,8 +8,8 @@ local proxy = {
 	
 	FLAG_PROXY_ACCEPT	= network.FLAG_CUSTOM + 1,
 	FLAG_PROXY_CLOSE	= network.FLAG_CUSTOM + 2,
-	FLAG_PROXY_UPWARD	= network.FLAG_CUSTOM + 3,
-	FLAG_PROXY_DOWNWARD	= network.FLAG_CUSTOM + 4,
+	FLAG_PROXY_DOWNWARD	= network.FLAG_CUSTOM + 3,
+	FLAG_PROXY_DISPATCH	= network.FLAG_CUSTOM + 4,
 }
 
 local _gateways = {}
@@ -49,7 +49,7 @@ local function _proxy_close(self, reader, nb, tail)
 	self._clients[index] = nil
 end
 
-local function _proxy_upward(self, reader, nb, tail)
+local function _proxy_dispatch(self, reader, nb, tail)
 	local index = reader:read()
 	local c = self._clients[index]
 	c:_dispatch(reader, nb - 1, tail)
@@ -75,7 +75,7 @@ function proxy.listen(ip, port, cb)
 				cb(c)
 			end
 			c._dispatchers[proxy.FLAG_PROXY_CLOSE] = _proxy_close
-			c._dispatchers[proxy.FLAG_PROXY_UPWARD] = _proxy_upward
+			c._dispatchers[proxy.FLAG_PROXY_DISPATCH] = _proxy_dispatch
 		end
 		cb(c)
 	end)
@@ -84,13 +84,14 @@ end
 local function _gateway_upward_dispatch(self, reader, nb, tail)
 	local writer = self._gateway._socket:getwriter()
 	local pos = writer:size()
-	writer:writef("Boo", nb + 2, proxy.FLAG_PROXY_UPWARD, self._index)
+	writer:writef("Boo", nb + 2, proxy.FLAG_PROXY_DISPATCH, self._index)
 	writer:extract(reader, tail - reader:tell())
 	writer:insertf(pos, "D", writer:size() - pos)
 	self._gateway:_ready()
+	network._stats.writtens = network._stats.writtens + 1
 end
 
-local function _gateway_proxy_downward(self, reader, nb, tail)
+local function _gateway_downward_dispatch(self, reader, nb, tail)
 	local index = reader:read()
 	local c = self._clients[index]
 	if c then
@@ -100,7 +101,7 @@ local function _gateway_proxy_downward(self, reader, nb, tail)
 		writer:extract(reader, tail - reader:tell())
 		writer:insertf(pos, "D", writer:size() - pos)
 		c:_ready()
-		network._stats.requests = network._stats.requests + 1
+		network._stats.writtens = network._stats.writtens + 1
 	end
 end
 
@@ -132,7 +133,7 @@ function proxy.launchGateway(ip, port, cb)
 	if c then
 		c.listen = _gateway_listen
 		c._clients = {n = 0}
-		c._dispatchers[proxy.FLAG_PROXY_DOWNWARD] = _gateway_proxy_downward
+		c._dispatchers[proxy.FLAG_PROXY_DOWNWARD] = _gateway_downward_dispatch
 	end
 	if cb then
 		cb(c, e)

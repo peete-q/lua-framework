@@ -50,13 +50,26 @@ local _waitings = {
 local _connection = {
 	__type = "network.connection",
 }
+local _stats = {
+	writtens = 0,
+	reads = 0,
+	backlogs = 0,
+	sends = 0,
+	receives = 0,
+	send_errors = 0,
+	receive_errors = 0,
+	sent = 0,
+	received = 0,
+	receiver = nil,
+	sender = nil,
+}
 local network = {
 	FLAG_UNKNOW	= 0,
 	FLAG_RPC	= 1,
 	FLAG_ACK	= 2,
 	FLAG_CUSTOM	= 3,
 	
-	_use_event  = true,
+	_use_event  = nil, 
 }
 
 _connection.__index = _connection
@@ -87,6 +100,8 @@ function _connection.close(self, mode)
 	if self._socket then
 		_readings:remove(self._socket)
 		_writings:remove(self._socket)
+		self._evreader:del()
+		self._evwriter:del()
 		_connectings[self._socket] = nil
 		self._socket:shutdown(mode or "both")
 		self._socket:close()
@@ -112,6 +127,7 @@ function _connection._send(self, ...)
 		}
 		self._packet.last = self._packet.last.next
 	end
+	_stats.writtens = _stats.writtens + 1
 	return self._packet.last
 end
 local _evwritings = {}
@@ -233,23 +249,11 @@ function _connection.getsockname(self)
 	return self._socket:getsockname()
 end
 
-local _stats = {
-	requests = 0,
-	handles = 0,
-	sends = 0,
-	receives = 0,
-	overreceives = 0,
-	oversends = 0,
-	sent = 0,
-	received = 0,
-	receiver = nil,
-	sender = nil,
-}
 function network._receive(c, v)
 	local ok, e = v:receive()
 	if not ok then
 		if e == "timeout" then
-			_stats.overreceives = _stats.overreceives + 1
+			_stats.receive_errors = _stats.receive_errors + 1
 			return
 		end
 		if e == "closed" then
@@ -286,7 +290,7 @@ function network._receive(c, v)
 			reader:read(nb)
 		end
 		c._packet.need = nil
-		_stats.handles = _stats.handles + 1
+		_stats.reads = _stats.reads + 1
 	end
 	reader:remove(0, reader:tell())
 end
@@ -304,14 +308,13 @@ function network._send(c, v)
 		writer:write(unpack(this.data))
 		writer:insertf(pos, "D", writer:size() - pos)
 		c._packet.first = this.next
-		_stats.requests = _stats.requests + 1
 	end
 	
 	if writer:size() > 0 then
 		local ok, e = v:send()
 		if not ok then
 			if e == "timeout" then
-				_stats.oversends = _stats.oversends + 1
+				_stats.send_errors = _stats.send_errors + 1
 				return
 			end
 			if e == "closed" then
@@ -333,6 +336,7 @@ function network._send(c, v)
 			_stats.sender()
 		end
 	end
+	_stats.backlogs = _stats.backlogs + writer:size()
 end
 function network.listen(ip, port, cb)
 	local s = assert(socket.bind(ip, port))
@@ -373,8 +377,10 @@ function network.connect(ip, port, cb)
 	return c, e
 end
 function network.step(timeout)
+	_stats.backlogs = 0
 	if network._use_event then
 		evbase:loop(evcore.EVLOOP_NONBLOCK)
+		socket.sleep(timeout)
 		return
 	end
 	local readable, writable = socket.select(_readings, _writings, timeout)
