@@ -69,7 +69,7 @@ local network = {
 	FLAG_ACK	= 2,
 	FLAG_CUSTOM	= 3,
 	
-	_use_event  = nil, 
+	_use_event  = true,
 }
 
 _connection.__index = _connection
@@ -308,14 +308,16 @@ function network._send(c, v)
 		writer:write(unpack(this.data))
 		writer:insertf(pos, "D", writer:size() - pos)
 		c._packet.first = this.next
+		_stats.backlogs = _stats.backlogs + (writer:size() - pos)
 	end
 	
-	if writer:size() > 0 then
+	local size = writer:size()
+	if size > 0 then
 		local ok, e = v:send()
+		_stats.backlogs = _stats.backlogs - (size - writer:size())
 		if not ok then
 			if e == "timeout" then
 				_stats.send_errors = _stats.send_errors + 1
-				_stats.backlogs = _stats.backlogs + writer:size()
 				return
 			end
 			if e == "closed" then
@@ -377,7 +379,6 @@ function network.connect(ip, port, cb)
 	return c, e
 end
 function network.step(timeout)
-	_stats.backlogs = 0
 	if network._use_event then
 		evbase:loop(evcore.EVLOOP_NONBLOCK)
 		socket.sleep(timeout)

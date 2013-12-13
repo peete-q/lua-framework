@@ -89,6 +89,7 @@ local function _gateway_upward_dispatch(self, reader, nb, tail)
 	writer:insertf(pos, "D", writer:size() - pos)
 	self._gateway:_ready()
 	network._stats.writtens = network._stats.writtens + 1
+	network._stats.backlogs = network._stats.backlogs + (writer:size() - pos)
 end
 
 local function _gateway_downward_dispatch(self, reader, nb, tail)
@@ -102,6 +103,7 @@ local function _gateway_downward_dispatch(self, reader, nb, tail)
 		writer:insertf(pos, "D", writer:size() - pos)
 		c:_ready()
 		network._stats.writtens = network._stats.writtens + 1
+		network._stats.backlogs = network._stats.backlogs + (writer:size() - pos)
 	end
 end
 
