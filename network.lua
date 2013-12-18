@@ -40,7 +40,7 @@ function _listener.close(self, mode)
 		_listenings[self._socket] = nil
 		self._socket:shutdown(mode or "both")
 		self._socket:close()
-		self._socket = false
+		self._socket = nil
 	end
 end
 
@@ -100,12 +100,13 @@ function _connection.close(self, mode)
 	if self._socket then
 		_readings:remove(self._socket)
 		_writings:remove(self._socket)
+		_connectings[self._socket] = nil
+		
 		self._evreader:del()
 		self._evwriter:del()
-		_connectings[self._socket] = nil
 		self._socket:shutdown(mode or "both")
 		self._socket:close()
-		self._socket = false
+		self._socket = nil
 	end
 	
 	if self.onClosed then
@@ -308,13 +309,10 @@ function network._send(c, v)
 		writer:write(unpack(this.data))
 		writer:insertf(pos, "D", writer:size() - pos)
 		c._packet.first = this.next
-		_stats.backlogs = _stats.backlogs + (writer:size() - pos)
 	end
 	
-	local size = writer:size()
-	if size > 0 then
+	if writer:size() > 0 then
 		local ok, e = v:send()
-		_stats.backlogs = _stats.backlogs - (size - writer:size())
 		if not ok then
 			if e == "timeout" then
 				_stats.send_errors = _stats.send_errors + 1
@@ -331,6 +329,8 @@ function network._send(c, v)
 		if writer:empty() then
 			_writings:remove(v)
 			_evwritings[c._evwriter] = nil
+		else
+			c._evwriter:add()
 		end
 		
 		_stats.sends = _stats.sends + 1
@@ -382,32 +382,32 @@ function network.step(timeout)
 	if network._use_event then
 		evbase:loop(evcore.EVLOOP_NONBLOCK)
 		socket.sleep(timeout)
-		return
-	end
-	local readable, writable = socket.select(_readings, _writings, timeout)
-	for k, v in ipairs(readable) do
-		repeat
-			local listener = _listenings[v]
-			if listener then
-				local s, e = v:accept()
-				if not s then
-					if e == "closed" then
+	else
+		local readable, writable = socket.select(_readings, _writings, timeout)
+		for k, v in ipairs(readable) do
+			repeat
+				local listener = _listenings[v]
+				if listener then
+					local s, e = v:accept()
+					if not s then
+						if e == "closed" then
+							break
+						end
+						print("accept failed:"..e)
 						break
 					end
-					print("accept failed:"..e)
-					break
+					listener.incoming(_connection.new(s))
+				else
+					local c = _connectings[v]
+					network._receive(c, v)
 				end
-				listener.incoming(_connection.new(s))
-			else
-				local c = _connectings[v]
-				network._receive(c, v)
+			until true
+		end
+		for k, v in ipairs(writable) do
+			local c = _connectings[v]
+			if c then
+				network._send(c, v)
 			end
-		until true
-	end
-	for k, v in ipairs(writable) do
-		local c = _connectings[v]
-		if c then
-			network._send(c, v)
 		end
 	end
 end

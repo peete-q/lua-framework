@@ -5,7 +5,6 @@ local span = 0.001
 local run = true
 local spend
 
-log = print
 network._stats.receiver = function()
 	if not spend then
 		spend = os.clock()
