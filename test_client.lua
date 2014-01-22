@@ -29,7 +29,7 @@ local connect = function(p, n)
 			local function sub_a()
 				local h = c.remote.cmd.hi("sub.a")
 				h.onAck = sub_a
-				c:send(string.rep("x", 1024))
+				-- c:send(string.rep("x", 1024))
 			end
 			say_hi()
 			say_hello()
@@ -57,7 +57,7 @@ end
 print("dorpc", os.clock() - now)
 
 print "init ..."
-connect(10001, 1)
+connect(10001, 2000)
 print "inited"
 
 local now = os.clock()
