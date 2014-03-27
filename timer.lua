@@ -1,7 +1,6 @@
 
-timer = {
-  __type = "timer",
-}
+local timer = {}
+
 local _counter = 0
 local _queue = {
 	{
@@ -34,50 +33,55 @@ local function _query(n)
 	end
 end
 
-local _handle = {}
-
-function _handle.restart(self, span, cb)
+function _handle_start(self, span, cb)
 	self:stop()
 	_counter = _counter + 1
 	self._site = _query(span)
 	self._site[self] = self
 end
-function _handle.stop(self)
+
+function _handle_stop(self)
 	if self._site and self._site[self] then
 		self._site[self] = nil
 		self._site = nil
 		_counter = _counter - 1
 	end
 end
-function _handle.running(self)
+
+function _handle_running(self)
 	return self._site ~= nil
 end
 
 function timer.clock()
 	return os.clock()
 end
+
 function timer.new(span, cb)
-	local handle = {
-		__type = "timer.handle",
+	local o = {
+		__tostring = ,
 		span = span,
 		ring = timer.clock() + span,
 		cb = cb,
 		counter = _counter,
-		restart = _handle.restart,
-		stop = _handle.stop,
-		running = _handle.running,
+		start = _handle_start,
+		stop = _handle_stop,
+		running = _handle_running,
 	}
+	o.__tostring = string.format("timer.handle (%s)", tostring(o))
+	
 	if span and cb then
-		handle:start(span, cb)
+		o:start(span, cb)
 	end
-	return handle
+	return o
 end
+
 function timer.step()
 	local now = timer.clock()
 	for i, q in ipairs(_queue) do
 		if q.now < now then
 			q.now = now + q.span
-			for k, v in pairs(q.task) do
+			local t = table.copy(q.task)
+			for k, v in pairs(t) do
 				if v.ring < now then
 					v.cb()
 					v.ring = now + v.span
@@ -86,9 +90,13 @@ function timer.step()
 		end
 	end
 end
+
 function timer.counter()
 	return _counter
 end
+
 function timer.empty()
 	return _counter == 0
 end
+
+return timer
