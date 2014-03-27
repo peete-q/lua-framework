@@ -7,7 +7,7 @@ local cmd = {
 	end,
 	hi = function(...)
 		print("hi", ...)
-		return "hi.ack"
+		return "hi.ack", ...
 	end,
 	sub = {a = print, b = print},
 }
@@ -25,11 +25,18 @@ network.connect("127.0.0.1",10001, function(c, e)
 	end
 	network.step(1)
 	local h = c.remote.cmd.hi("say hi")
-	h.onAck = function(...) print("ack", ...) end
+	h.onAck = print
 	c.remote.cmd.hello("say hello")
 	c.remote.cmd.sub.a("sub.a")
 	c:send("xxxxxxx")
+	local co = coroutine.wrap(function()
+		while true do
+			local h = c.remote.cmd.hi("test wait")
+			print(network.wait(h))
+		end
+	end)
 	for i = 1, 10 do
 		network.step(1)
+		co()
 	end
 end)

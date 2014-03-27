@@ -411,6 +411,16 @@ function network.step(timeout)
 		end
 	end
 end
+function network.wait(h)
+	local ack
+	h.onAck = function(...)
+		ack = {...}
+	end
+	while not ack do
+		coroutine.yield()
+	end
+	return unpack(ack)
+end
 
 network._connection = _connection
 network._stats = _stats
