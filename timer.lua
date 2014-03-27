@@ -1,4 +1,6 @@
 
+require "base_ext"
+
 local timer = {}
 
 local _counter = 0
