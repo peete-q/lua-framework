@@ -1,3 +1,4 @@
+require "base_ext"
 local network = require "network"
 
 -- server
@@ -29,7 +30,7 @@ network.connect("127.0.0.1",10001, function(c, e)
 	c.remote.cmd.hello("say hello")
 	c.remote.cmd.sub.a("sub.a")
 	c:send("xxxxxxx")
-	local co = coroutine.wrap(function()
+	coroutine.run(function()
 		while true do
 			local h = c.remote.cmd.hi("test wait")
 			print(network.wait(h))
@@ -37,6 +38,6 @@ network.connect("127.0.0.1",10001, function(c, e)
 	end)
 	for i = 1, 10 do
 		network.step(1)
-		co()
+		coroutine.step()
 	end
 end)
